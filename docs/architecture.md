@@ -1,6 +1,6 @@
 # JobApplier — Architecture (visual)
 
-Draft v4 · 2026-10-31 · Full written spec: [`superpowers/specs/2026-10-31-job-applier-design.md`](superpowers/specs/2026-10-31-job-applier-design.md) (the spec wins if anything here disagrees)
+Draft v5 · 2026-10-31 · Full written spec: [`superpowers/specs/2026-10-31-job-applier-design.md`](superpowers/specs/2026-10-31-job-applier-design.md) (the spec wins if anything here disagrees)
 
 A background job on your Mac finds fresh Canadian software postings every 2 hours, de-duplicates and ranks them into Notion, and applies to the ones you approve. Scraping is plain code. Forms are scripted for Greenhouse, Lever and Ashby, and LLM-assisted for Workday and everything else. Claude tailors the resume and writes free-text answers, and usage is tracked in Notion against one daily cap.
 
@@ -15,8 +15,8 @@ flowchart LR
     D1 --> D2["Filter · cluster · resolve ATS ID<br/>location · repost · rank"]
     D2 --> D3["Push new rows to Notion"]
   end
-  subgraph A["Apply · after discover, then every 30 min while queue has jobs"]
-    A0["Recover stuck rows"] --> A1["Up to 5 approved jobs"]
+  subgraph A["Apply · every 30 min, kicked by discover, exits if queue empty"]
+    A0["Recover: preparing → queued<br/>refilling → awaiting review<br/>submitting → needs you"] --> A1["Up to 5 approved jobs"]
     A1 --> A2["Re-check your decision<br/>tailor · fill · review gate"]
     A2 --> A3["Re-check decision + applied guard<br/>save Submitting · click"]
   end
@@ -75,7 +75,8 @@ flowchart TD
   LOC -- "Canada" --> RP
   FL --> RP{"Same ATS job ID first seen<br/>by FreeHire over 2 days ago?"}
   RP -- "yes and reposts off" --> Z
-  RP -- "no, unknown, or reposts on" --> RK["Rank on full description"]
+  RP -- "no, unknown, or reposts on" --> FD["Fetch full description"]
+  FD --> RK["Rank"]
   RK --> R1["1 · New grad, SDE I, Junior, Associate,<br/>level I, notable intern"]
   RK --> R2["2 · Requires under 3 years"]
   RK --> R3["3 · Everything else"]
@@ -100,7 +101,7 @@ flowchart LR
 
 ## 5. What you see in Notion
 
-**Decision** (you): New · Approve · Approve + review · Skip · Submit · Retry · Applied manually
+**Decision** (you): New · Approve · Approve + review · Skip · Submit · Retry (verified) · Applied manually
 **Inbox** shows New, Queued, Awaiting review, Needs you and Failed. **History** shows everything. Nothing is deleted.
 
 | Decision | Status | Rank | Title | Company | City | ATS · Tier | Flags | LLM usage |
@@ -124,23 +125,26 @@ stateDiagram-v2
   New --> Skipped: Skip
   New --> Queued: Approve or Approve + review
   Queued --> Preparing
-  Preparing --> Queued: infra error, under 3 tries
+  Preparing --> Queued: infra error or crash, under 3 tries
+  Preparing --> Submitted: already applied page
   Preparing --> Closed: posting gone
   Preparing --> NeedsYou: CAPTCHA, unresolvable link
   Preparing --> AwaitingReview: review row or auto-flagged
   Preparing --> Submitting: approved, decision re-checked
   AwaitingReview --> Refilling: you pick Submit
-  Refilling --> AwaitingReview: form changed since review
+  Refilling --> AwaitingReview: form changed, or crash before click
   Refilling --> Submitting: frozen answers, no LLM
-  Submitting --> Submitted: confirmation seen
-  Submitting --> NeedsYou: anything goes wrong after the click
-  NeedsYou --> Queued: you Approve or Retry
+  Submitting --> Submitted: confirmation seen, or you solved the submit CAPTCHA
+  Submitting --> NeedsYou: anything else goes wrong after the click
+  NeedsYou --> Queued: Approve if never clicked, else only Retry verified
+  Preparing --> Duplicate: real ATS ID already applied
   NeedsYou --> Submitted: you mark Applied manually
   Preparing --> Failed: 3 failed tries
   Failed --> Queued: you Approve
 ```
 
-- **Point of no return:** *Submitting* is saved before the click and never retried automatically. If something goes wrong after the click, you verify, helped by a search for a confirmation email.
+- **Point of no return:** *Submitting* is saved before the click and never retried automatically. If something goes wrong after the click, plain Approve is refused. Only **Retry (verified)** works, and only after the pipeline has posted its confirmation-email search result in the row.
+- **CAPTCHAs at submit time are common** (Lever, Greenhouse). If you're at the Mac, the window stays open for up to 15 minutes so you can solve it.
 - **Your decision is re-read from Notion** right before tailoring and right before submitting, so if you switch a job to Skip mid-run, it isn't sent.
 - **Switched to review automatically when:**
   - a sensitive question has no set answer in your profile
@@ -157,13 +161,13 @@ stateDiagram-v2
 ```mermaid
 flowchart TD
   U["Apply link"] --> W{"Which ATS?"}
-  W -- "Greenhouse, Lever, Ashby" --> T1["Tier 1 · Scripted<br/>read full question list<br/>GH API / Ashby JSON / Lever cards"]
+  W -- "Greenhouse, Lever, Ashby" --> T1["Tier 1 · Scripted<br/>read full question list<br/>GH questions API / Ashby GraphQL / Lever cards JSON"]
   W -- "Workday, iCIMS, unknown" --> T2["Tier 2 · LLM maps fields<br/>script reads page fields as JSON<br/>1 LLM call per page, script fills"]
   T2 -- stuck --> T3["Tier 3 · LLM drives browser<br/>claude -p + Playwright MCP<br/>always goes to review"]
   T1 --> C{"Each field"}
   T2 --> C
   T3 --> C
-  C -- "standard field" --> P1["profile.yaml · no LLM"]
+  C -- "standard field" --> P1["profile.yaml · no LLM<br/>incl. work history + education"]
   C -- "seen before, job-independent" --> P2["answers bank · no LLM"]
   C -- "new question" --> P3["one batched call per job<br/>Haiku for choices · Sonnet for text"]
   P1 --> SUB["Script verifies fields, screenshots,<br/>re-checks decision + guard,<br/>saves Submitting, clicks submit"]
@@ -172,8 +176,10 @@ flowchart TD
 ```
 
 - **The LLM never clicks submit.** The script does, after its checks.
-- Custom questions are fine: tier 1 reads the company's full question list first, so nothing on the form is unexpected.
+- Custom questions are fine: tier 1 reads the company's full question list first, so nothing on the form is unexpected. This was checked against live Greenhouse, Ashby and Lever jobs.
+- Your work history and education are generated once from `master.tex` into `profile.yaml` for you to check. Workday's "My Experience" page needs them.
 - Answers like "Why this company?" are never reused across companies.
+- An **added resume bullet** may only expand or split **one** master bullet, never combine several.
 
 ---
 
@@ -199,18 +205,22 @@ sequenceDiagram
     M-->>P: Code or link
   end
   P->>B: Upload resume first, then fill (tier 1, 2 or 3)
-  alt CAPTCHA and you are active
-    P->>Y: Notification, solve within 15 min
-  else CAPTCHA and you are away
-    P->>N: Needs you, move on
-  end
   P->>B: Re-read fields, screenshot
   alt review row
     P->>N: Freeze PDF + answers, Awaiting review
   else approved row
     P->>N: Decision still Approve?
     P->>P: Guard check, save Submitting
-    P->>B: Click submit, capture confirmation
+    P->>B: Click submit
+    alt CAPTCHA and you are active
+      P->>Y: Notification, window stays open 15 min
+      Y->>B: Solve it
+      P->>N: Submitted
+    else CAPTCHA and you are away, or any error
+      P->>N: Needs you (verify)
+    else no challenge
+      P->>N: Submitted, confirmation captured
+    end
   end
 ```
 
@@ -225,7 +235,7 @@ sequenceDiagram
 | Choice fields, tier 2 field mapping, unclear seniority | Haiku (confirm ID after upgrade) |
 | Tier 3 browser driving | Sonnet 5.5 |
 
-Every call records its tokens and **equivalent cost** (`total_cost_usd`). That figure isn't billed on your subscription but works as a usage gauge. There's **one overall daily cap**; once it's hit, remaining jobs wait until the next day.
+At most 4 jobs start LLM work per hour (adjustable), so the pipeline doesn't use up your plan's 5-hour window in one burst. Every call records its tokens and **equivalent cost** (`total_cost_usd`). That figure isn't billed on your subscription but works as a usage gauge. There's **one overall daily cap**; once it's hit, remaining jobs wait until the next day.
 
 ---
 

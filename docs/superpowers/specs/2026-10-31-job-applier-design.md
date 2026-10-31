@@ -1,7 +1,7 @@
 # JobApplier — Design
 
 Date: 2026-10-31
-Status: Draft v4 (two design reviews applied; one owner question open in §17)
+Status: Draft v5 (three design reviews applied; owner questions open in §17)
 
 Decisions marked **(owner)** were made by the owner. **(builder's call)** marks decisions made during design that the owner may override. Unmarked mechanics are part of the design.
 
@@ -57,8 +57,8 @@ discover agent (every 2h + RunAtLoad + once on wake)
   3. push_new_rows()                  SQLite → Notion (idempotent)
   4. write heartbeat + status page
 
-apply agent (starts after each discover run; also every 30 min while queue non-empty)
-  0. recover()                        rows left in `refilling`/`submitting` → needs_you(verify)
+apply agent (every 30 min, exits immediately if the queue is empty; discover also triggers it via `launchctl kickstart`)
+  0. recover()                        `preparing` → queued (attempt+1) · `refilling` → awaiting_review · `submitting` → needs_you(verify)
   1. sync_notion_decisions()
   2. for up to N jobs (config, default 5 per run):
        re-check Decision in Notion → liveness → tailor → fill (tier 1/2/3) → review gate
@@ -123,16 +123,17 @@ Every row that passes the title filters gets its posting identity resolved **bef
 - FreeHire ATS rows already have it. Indeed rows: parse the direct URL.
 - LinkedIn rows: take identity from the matching FreeHire/Indeed row.
 - Aggregator rows (whatjobs): their links are landing pages that do not redirect (verified). Prefer any other cluster member's direct URL; otherwise one best-effort parse of the landing page for an ATS link; otherwise flag `Aggregator link` (likely ends as `needs_you`).
-- In the apply phase identity is re-derived after following the link, and the guard is checked again immediately before writing `submitting`.
+- In the apply phase identity is re-derived after following the link and persisted. If it collides with an identity that already reached `submitting`/`submitted`, the row is set to `Duplicate` and stops. The guard is checked again immediately before writing `submitting`.
 
 ### 6.3 Applied guard
 - A posting identity that reached `submitting` or `submitted`, or was marked "Applied manually", is never prepared again automatically.
-- The owner can override only with Decision = **Retry** (verified not submitted), which writes an audit note. The pipeline never clicks submit twice on its own.
+- For an identity that reached `submitting`, plain **Approve is rejected** (row stays `needs_you`, note "use Retry (verified)").
+- The only override is Decision = **Retry (verified)**. It is accepted only after the pipeline has written the mailbox confirmation-search result into the row's Notes, and it runs the "already applied" liveness check before anything else. An audit note is written. The pipeline never clicks submit twice on its own.
 - **Soft guard:** if the same company + normalized title was submitted in the last 30 days, a new posting is still shown (owner: new reqs with the same title should show again) but flagged `Applied to similar on <date>` and forced to review.
 
 ### 6.4 Clustering (owner: city preference)
 - Rows with the same cluster key first seen within 7 days of each other form one Notion row. Representative city: **Toronto (GTA) > Vancouver > Montreal > remote-Canada > remote-US > other** (builder's call on the remote ranks). Others listed in `Alt locations`.
-- If a cluster holds several posting identities (e.g. Revvity: 4 Workday reqs with the same title), the row lists them; the **apply target is fixed when the row is first shown** (preferred city) and is the URL in the Link column. Siblings are marked `sibling_of_applied` once the target is submitted.
+- If a cluster holds several posting identities (e.g. Revvity: 4 Workday reqs with the same title), the row lists them; the **apply target is set when the row is first shown** (preferred city) and is the URL in the Link column. While Status is New or Queued, the target may be **upgraded** from an aggregator link to a direct ATS link for the same posting found in a later run; never after preparation starts. Siblings are marked `sibling_of_applied` once the target is submitted.
 - A same-title req appearing after the 7-day window is a new row **(owner)**.
 
 ### 6.5 Filters and rank
@@ -156,14 +157,14 @@ One database "Jobs"; an integration token scoped to it.
 | Flags | multi-select (Repost, Repost unknown, Late, Remote US, French, Intern, Aggregator link, Applied to similar) | pipeline |
 | Link | url — the exact posting that will be applied to | pipeline |
 | Job ID | text (SQLite key) | pipeline |
-| **Decision** | select: New / Approve / Approve + review / Skip / Submit / Retry / Applied manually | **owner** (pipeline resets to New, see below) |
+| **Decision** | select: New / Approve / Approve + review / Skip / Submit / Retry (verified) / Applied manually | **owner** (pipeline resets to New, see below) |
 | Status | select: New / Queued / Preparing / Awaiting review / Refilling / Submitting / Submitted / Needs you / Failed / Skipped / Closed / Duplicate | pipeline |
 | LLM usage | number (equivalent $ for this job) | pipeline |
 | Notes | text | either |
 
 - Views: **Inbox** = Status ∈ {New, Queued, Awaiting review, Needs you, Failed}; **History** = all.
 - Decision handling:
-  - Skip → Status Skipped. Applied manually → Status Submitted and guard set. Retry → back to Queued (audit note).
+  - Skip → Status Skipped. Applied manually → Status Submitted and guard set. Retry (verified) → back to Queued under the rules in §6.3.
   - When the pipeline writes Needs you or Failed it **resets Decision to New**, so re-approving is a visible change.
 - **Sync keys on the Job ID property**, not stored page IDs. Two pages with the same Job ID → the newer is set to Status Duplicate. Create is preceded by a query by Job ID; page ID stored immediately.
 - Row page body: resume PDF (≤5 MB upload), answers, filled-form screenshot, short log; text over 2,000 chars split across blocks.
@@ -177,13 +178,15 @@ One database "Jobs"; an integration token scoped to it.
 new ─Approve────────► queued ─► preparing ─────────────────────────► submitting ─► submitted
 new ─Approve+review─► queued ─► preparing ─► awaiting_review ─Submit─► refilling ─► submitting ─► submitted
 new ─Skip──────────► skipped
-preparing ─► closed | needs_you | failed | queued (infra error, attempts < 3)
+preparing ─► closed | needs_you | failed | queued (infra error, attempts < 3) | submitted ("already applied" page)
 refilling ─► awaiting_review (form changed since review)
-refilling / submitting found at startup ─► needs_you (verify)
-needs_you/failed ─Approve/Retry─► queued      any ─Applied manually─► submitted
+startup: preparing ─► queued · refilling ─► awaiting_review · submitting ─► needs_you (verify)
+needs_you/failed (never clicked) ─Approve─► queued
+needs_you (after click) ─Retry (verified)─► queued      any ─Applied manually─► submitted
+apply-phase identity collides with an applied posting ─► duplicate
 ```
 - **Decision re-check:** right before tailoring and right before writing `submitting`, the row's Decision is re-read from Notion (one GET); if it is no longer Approve / Approve + review / Submit, abort and set the status accordingly.
-- **Point of no return:** `submitting` is committed to SQLite immediately before the click. Any problem after it (crash, sleep, submit-time challenge, validation error) → `needs_you` with "verify"; the pipeline searches the mailbox (read-only) for a confirmation email to help. Only the owner moves it on (Submitted, Applied manually, or Retry).
+- **Point of no return:** `submitting` is committed to SQLite immediately before the click. **Submit-time challenges** (common: Lever loads hCaptcha/reCAPTCHA, Greenhouse uses invisible reCAPTCHA on submit) follow §8.5: if the owner is active, keep the window open, notify, and wait ≤15 min for the owner to solve it, then capture the confirmation. Any other problem after the click (crash, sleep, owner away, validation error) → `needs_you` with "verify"; the pipeline searches the mailbox (read-only) for a confirmation email to help. Only the owner moves it on (Submitted, Applied manually, or Retry).
 - **Infra failures** (timeout, browser died, sleep, usage limit mid-call) return the job to `queued`, up to 3 attempts, then `failed`.
 - **Auto-escalation to review:** a sensitive question with no deterministic answer in `profile.yaml`; no adapter and tier 3 used; required field couldn't be filled; a new job-specific question category; resume grounding check failed; `Applied to similar` flag.
 - **Frozen review artifacts:** at `awaiting_review` store resume PDF, answers, field→value map, apply URL, and a hash of the form's question set. Submit pass (`refilling`) reuses them verbatim with no LLM calls; a different question set returns the row to `awaiting_review` with the diff.
@@ -193,22 +196,22 @@ Per-adapter content check ("no longer accepting applications", redirect to board
 
 ### 8.3 Resume tailoring (owner: LaTeX + Sonnet 5.5; rewording, adding, omitting allowed)
 - `resume/master.tex` is the source of truth; each bullet/project/skill line carries a stable ID.
-- Sonnet returns JSON (`--json-schema`): ordered items, each `{id}` (unchanged), `{id, text}` (reworded), or `{new: text, sources: [ids]}` (added).
+- Sonnet returns JSON (`--json-schema`): ordered items, each `{id}` (unchanged), `{id, text}` (reworded), or `{new: text, source: id}` (added). **An added item derives from exactly one master item** (a split or expansion of that bullet), never a combination of several, so it can't fabricate by recombining facts **(builder's call)**.
 - **Only master IDs may be sources.** `answers_bank.md` is for form answers, never resume content.
-- **Grounding validator:** rejects any number, percentage, technology, employer, or title not in the cited master items, and scope-inflating verb swaps (deny-map: contributed/assisted/helped/supported → led/owned/architected/spearheaded/drove). Rejected items revert to master text and the row is escalated to review.
+- **Grounding validator:** rejects any number, percentage, technology, employer, or title not in the cited master items, and scope-inflating verb swaps (deny-map: contributed/assisted/helped/supported → led/owned/architected/spearheaded/drove). The validator applies equally to reworded and added items. Rejected items revert to master text and the row is escalated to review.
 - One-page fit: if longer than one page, drop the lowest-ranked optional items and recompile; never drop below the master's required items (floor), never re-prompt.
 - All LLM text is LaTeX-escaped; raw backslashes/braces rejected. Compile with `tectonic`; check pages with `pdfinfo`.
 - Filename **(owner)**: `First_Last_Company_Role.pdf` (spaces → `_`, punctuation/parentheticals removed, role ≤ ~6 words, collision → short job ID). Final PDF uploaded to the Notion row **(owner)**.
 
 ### 8.4 Form filling — three tiers
 Every tier first reads the **full list of fields** (label, type, required, options), then classifies each field into:
-1. **Standard field** (name, email, phone, location, resume, LinkedIn/GitHub/website, EEO/self-ID, work authorization, sponsorship, "how did you hear", notice period, relocation, salary expectation) → value from `profile.yaml`; no LLM. `profile.yaml` holds deterministic answers for all of these, including "decline to answer" EEO defaults, so they don't force review.
+1. **Standard field** (name, preferred name, pronouns, email, phone, location/province, resume (always the file field, never pasted text), LinkedIn/GitHub/website, EEO/self-ID, work authorization, sponsorship now/future, previously employed here, "how did you hear", notice period, relocation, salary expectation, data/GDPR consent checkboxes, **structured work history and education**) → value from `profile.yaml`; no LLM. Work history and education are generated once from `master.tex` into `profile.yaml` and reviewed by the owner (Workday's "My Experience" page needs them) **(builder's call)**. `profile.yaml` holds deterministic answers for all of these, including "decline to answer" EEO defaults, so they don't force review.
 2. **Known question** → matched by normalized text against the answers bank; reused with no LLM. **Only job-independent answers are reusable** (each saved answer is classified job-independent vs job-specific when written; job-specific ones like "Why this company?" are regenerated per job).
 3. **New question** → one batched LLM call per job: Haiku for choice fields (must return one of the given options), Sonnet for free text (Opus medium for hard ones). Job-independent answers are saved to the bank.
 
 | Tier | ATS | How fields are read | Who fills |
 |---|---|---|---|
-| **1 Scripted** | Greenhouse, Lever, Ashby | Greenhouse: public API `boards-api.greenhouse.io/v1/boards/{board}/jobs/{id}?questions=true`. Ashby: form definition JSON embedded in the job page. Lever: structured custom-question "cards" in the form markup. | Script |
+| **1 Scripted** | Greenhouse, Lever, Ashby | Greenhouse: public API `boards-api.greenhouse.io/v1/boards/{board}/jobs/{id}?questions=true` (verified: returns custom `questions`, `demographic_questions`, `data_compliance`, `location_questions`). Ashby: `POST jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobPosting` → `jobPosting.applicationForm.sections[].fieldEntries[]` (verified; the page itself is an SPA without the form), or intercept that request in Playwright; `api.ashbyhq.com/posting-api/job-board/{org}` for listing/liveness. Lever: `cards[<uuid>][fieldN]` inputs, each card with a hidden `baseTemplate` JSON describing its questions (verified). | Script |
 | **2 LLM maps fields** | Workday, iCIMS, SmartRecruiters, Jobvite, unknown | Script extracts each page's fields from the DOM/accessibility tree as JSON | One LLM call per page returns field → value; script fills, clicks Next, repeats |
 | **3 LLM drives the browser** | Fallback when tier 2 is stuck | `claude -p` with a Playwright MCP server attached, scoped to the one tab | LLM operates the page |
 
@@ -225,7 +228,7 @@ Rules for every tier:
 **Accounts (Workday etc.):** generate the password, **store it in Keychain first**, then create the account with the application email. "Email already registered" → try sign-in with any stored password; else `needs_you` (owner resets). Application email must be final before the first account (§8.6).
 
 ### 8.5 CAPTCHA (owner: no automated solving)
-- Visible widget, owner active: pause with the window open, notify, Notion `needs_you`, poll ≤15 min, continue when solved.
+- Visible widget or submit-time challenge, owner active: pause with the window open, notify, Notion `needs_you`, poll ≤15 min, continue when solved (before or after the submit click).
 - Owner away (no input >10 min via `ioreg` HIDIdleTime) **(owner: still attempt jobs)**: straight to `needs_you` with URL + PDF; close window; next job.
 - Invisible challenges blocking submission → `needs_you` immediately.
 - No automatic retries; the owner re-approves.
@@ -256,6 +259,7 @@ Tier 3 adds `--mcp-config <playwright-only.json>` and allows only that server's 
 - Every `claude -p` result's JSON (model, input/output tokens, duration, `total_cost_usd`) is logged in SQLite with job ID and purpose (tailor / answer / field-map / tier3 / classify). On a subscription `total_cost_usd` is not billed; it is an **equivalent-cost gauge**.
 - Notion: per-row **LLM usage**; status page shows today and the last 7 days by model and purpose, plus each time a plan limit was hit.
 - **One overall daily cap (owner):** `config.yaml: daily_llm_cap_usd` (equivalent cost, all purposes together; builder picks a starting value). When reached, remaining jobs stay `queued` until the next day; the status page says so.
+- **Pacing (builder's call, within the one cap):** at most `max_llm_jobs_per_hour` jobs (default 4) start LLM work per hour, so the pipeline doesn't use up the plan's 5-hour window in one burst; optional `quiet_hours` window preferred for apply runs.
 - Also on the status page: applications per day, FreeHire and Notion request counts.
 - Claude Code does not expose remaining plan quota; a plan-limit error leaves jobs `queued`. Its exact form must be captured on day one.
 
@@ -298,7 +302,7 @@ $0 recurring beyond the Claude subscription. Equivalent LLM cost is tracked and 
 3. Notifications from launchd processes.
 4. FreeHire backfill in daily slices within the request budget.
 5. LinkedIn: 429 behavior at 100/term from the home IP; how JobSpy reports it; detail-fetch path.
-6. Chrome window can open without stealing focus; challenge rate on Greenhouse/Workday with the automation banner.
+6. Chrome window can open without stealing focus; submit-time challenge rate on Lever/Greenhouse/Workday with the automation banner (decides how often unattended submits end in `needs_you`).
 7. `tectonic` package cache primed.
 
 ## 16. Left to the builder
@@ -307,4 +311,6 @@ Normalization and regexes; delays, pacing, attempt counts; LaTeX ID mechanism; N
 ## 17. Owner answers and open question
 Answered (2026-10-31): Workday required · interns only at notable companies · apply to US-remote roles tagged Canada · show new same-title reqs again · keep and apply to French postings · resume rewording/adding/omitting allowed, final PDF to Notion · attempt jobs while away · one overall daily usage cap.
 
-**Open:** the owner's work-authorization answers for Canada and the US (citizen / PR / permit type, sponsorship needed now or later). These go into `profile.yaml`; without them every form escalates to review, and they decide whether US-remote roles are viable.
+**Open 1:** the owner's work-authorization answers for Canada and the US (citizen / PR / permit type, sponsorship needed now or later). These go into `profile.yaml`; without them every form escalates to review, and they decide whether US-remote roles are viable.
+
+**Open 2:** the owner's Claude plan (Pro or Max). It sets the starting `daily_llm_cap_usd` and `max_llm_jobs_per_hour`, and whether Opus for hard answers is affordable.
