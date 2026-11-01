@@ -16,3 +16,50 @@ def config():
 @pytest.fixture
 def rules(config):
     return Rules.from_config(config)
+
+
+class Resp:
+    def __init__(self, status_code, body=None, headers=None):
+        self.status_code, self._body, self.headers = status_code, body or {}, headers or {}
+        self.text = str(self._body)
+
+    def json(self):
+        return self._body
+
+
+class FakeSession:
+    """Serves queued responses and records every call."""
+
+    def __init__(self, responses):
+        self.responses, self.calls = list(responses), []
+
+    def request(self, method, url, headers=None, json=None, timeout=None):
+        self.calls.append({"method": method, "url": url, "headers": headers, "json": json, "timeout": timeout})
+        return self.responses.pop(0)
+
+
+class FakeNotion:
+    """In-memory stand-in for jobapplier.notion.Notion: pages by id, create fails on the Nth attempt in fail_on_create."""
+
+    def __init__(self, fail_on_create=()):
+        from jobapplier.notion import NotionError
+
+        self.error = NotionError
+        self.pages, self.fail_on_create, self.creates, self.description = {}, set(fail_on_create), 0, None
+
+    def request(self, method, path, body=None):
+        if path.endswith("/query"):
+            want = body["filter"]["rich_text"]["equals"]
+            hits = [{"id": pid} for pid, p in self.pages.items() if p["Job ID"]["rich_text"][0]["text"]["content"] == want]
+            return {"results": hits[: body["page_size"]]}
+        if method == "POST" and path == "/v1/pages":
+            self.creates += 1
+            if self.creates in self.fail_on_create:
+                raise self.error("400 validation_error")
+            pid = f"page-{len(self.pages) + 1}"
+            self.pages[pid] = body["properties"]
+            return {"id": pid}
+        if method == "PATCH" and path.startswith("/v1/databases/"):
+            self.description = body["description"][0]["text"]["content"]
+            return {}
+        raise AssertionError(f"unexpected {method} {path}")
