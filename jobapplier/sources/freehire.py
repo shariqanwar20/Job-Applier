@@ -38,14 +38,19 @@ def fetch(session, lookback_days: int) -> tuple[list[Posting], str | None]:
             if resp.status_code != 200:
                 return postings, f"freehire: HTTP {resp.status_code}"
             body = resp.json()
+            meta = body["meta"]
+            # Silently ignored filters would return unfiltered rows, so drop the page.
+            ignored = meta.get("ignored_params") or meta.get("ignored_values")
+            if ignored:
+                return postings, f"freehire: ignored params {ignored}"
+            page = [parse(r) for r in body["data"]]
+            total = meta["total"]
         except requests.RequestException as e:
             return postings, f"freehire: {e}"
-        meta = body["meta"]
-        # Silently ignored filters would return unfiltered rows, so drop the page.
-        ignored = meta.get("ignored_params") or meta.get("ignored_values")
-        if ignored:
-            return postings, f"freehire: ignored params {ignored}"
-        postings += [parse(r) for r in body["data"]]
+        except (KeyError, TypeError, ValueError):
+            return postings, "freehire: malformed response"
+        postings += page
         offset += PAGE
-        if len(body["data"]) < PAGE or offset >= meta["total"] or offset > MAX_OFFSET:
+        # The API rejects offset + limit > MAX_OFFSET, so the last request is offset 9900.
+        if len(page) < PAGE or offset >= total or offset >= MAX_OFFSET:
             return postings, None

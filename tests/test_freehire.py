@@ -71,3 +71,17 @@ def test_fetch_keeps_earlier_pages_on_later_error():
     first = {"data": PAGE["data"][:1] * 100, "meta": {"total": 300}}
     rows, err = freehire.fetch(FakeSession([FakeResponse(200, first), FakeResponse(500, {})]), 3)
     assert len(rows) == 100 and err == "freehire: HTTP 500"
+
+
+def test_fetch_stops_at_offset_cap_without_error():
+    full = {"data": PAGE["data"][:1] * 100, "meta": {"total": 20000}}
+    s = FakeSession([FakeResponse(200, full) for _ in range(101)])
+    rows, err = freehire.fetch(s, 3)
+    assert err is None and len(rows) == 10000
+    assert dict(s.calls[-1]["params"])["offset"] == 9900 and len(s.calls) == 100
+
+
+def test_fetch_malformed_response_keeps_earlier_pages():
+    first = {"data": PAGE["data"][:1] * 100, "meta": {"total": 300}}
+    rows, err = freehire.fetch(FakeSession([FakeResponse(200, first), FakeResponse(200, {"data": [{}], "meta": {"total": 300}})]), 3)
+    assert len(rows) == 100 and err == "freehire: malformed response"

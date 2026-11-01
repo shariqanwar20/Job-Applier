@@ -51,3 +51,12 @@ def test_other_error_is_reported_and_loop_continues():
         df = pd.DataFrame([INDEED]); df.attrs = {"errors": {"indeed": "timeout"}}; return df
     rows, err = fetch("indeed", ["a", "b"], 100, 72, scrape=scrape, sleep=lambda s: None)
     assert len(rows) == 1 and err == "indeed: timeout"  # last error wins
+
+
+def test_raised_429_stops_remaining_terms():
+    calls = []
+    def scrape(**kw):
+        calls.append(kw)
+        raise RuntimeError("HTTP 429 Too Many Requests")
+    rows, err = fetch("linkedin", ["a", "b"], 100, 72, scrape=scrape, sleep=lambda s: None)
+    assert len(calls) == 1 and rows == [] and err == "linkedin: 429"

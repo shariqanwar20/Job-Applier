@@ -37,6 +37,8 @@ def fetch(site: str, terms: list[str], results_wanted: int, hours_old: int,
             df = scrape(site_name=[site], search_term=term, location="Canada",
                         results_wanted=results_wanted, hours_old=hours_old, **extra)
         except Exception as e:
+            if "429" in str(e):
+                return postings, f"{site}: 429"
             error = f"{site}: {e}"
             continue
         postings += [from_record(site, r) for r in df.to_dict("records")]
