@@ -1,0 +1,60 @@
+import plistlib
+import subprocess
+from pathlib import Path
+
+from jobapplier.system import launchd
+
+REPO = Path("/Users/me/my repo & <stuff>")
+UV = "/Users/me/.local/bin/uv"
+
+
+def test_plist_round_trips_awkward_paths():
+    d = plistlib.loads(plistlib.dumps(launchd.plist(REPO, UV)))
+    assert d["Label"] == "local.jobapplier" and d["StartInterval"] == 7200 and d["RunAtLoad"] is True
+    assert d["ProgramArguments"] == ["/usr/bin/caffeinate", "-i", UV, "run", "--project", str(REPO), "python", "-m", "jobapplier", "discover"]
+    assert d["WorkingDirectory"] == str(REPO)
+    assert d["EnvironmentVariables"] == {"PATH": "/Users/me/.local/bin:/usr/bin:/bin"}
+    assert d["StandardOutPath"] == d["StandardErrorPath"] == str(REPO / "logs" / "jobapplier.log")
+
+
+def fake_run(calls, fail_bootout=False):
+    def run(cmd, **kw):
+        calls.append((cmd, kw))
+        if fail_bootout and cmd[1] == "bootout" and kw.get("check"):  # a real run only raises when asked to
+            raise subprocess.CalledProcessError(3, cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    return run
+
+
+def test_install_creates_dirs_writes_plist_then_bootout_and_bootstrap(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    calls = []
+    path = launchd.install(repo, UV, run=fake_run(calls))
+    assert path == tmp_path / "Library" / "LaunchAgents" / "local.jobapplier.plist"
+    assert (repo / "logs").is_dir()
+    assert plistlib.loads(path.read_bytes()) == launchd.plist(repo, UV)
+    assert [c[0][:2] for c in calls] == [["launchctl", "bootout"], ["launchctl", "bootstrap"]]
+    assert calls[0][0][2].endswith("/local.jobapplier") and not calls[0][1].get("check")
+    assert calls[1][0][3] == str(path) and calls[1][1]["check"] is True
+
+
+def test_install_works_when_bootout_fails(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    calls = []
+    launchd.install(tmp_path, UV, run=fake_run(calls, fail_bootout=True))
+    assert len(calls) == 2
+
+
+def test_uninstall_boots_out_and_removes_plist(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    agents = tmp_path / "Library" / "LaunchAgents"
+    agents.mkdir(parents=True)
+    (agents / "local.jobapplier.plist").write_text("x")
+    calls = []
+    launchd.uninstall(run=fake_run(calls))
+    assert [c[0][:2] for c in calls] == [["launchctl", "bootout"]]
+    assert not (agents / "local.jobapplier.plist").exists()
+    launchd.uninstall(run=fake_run(calls))  # nothing to remove: no error
