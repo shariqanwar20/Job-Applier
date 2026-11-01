@@ -241,7 +241,7 @@ Rules for every tier:
 
 ### 8.7 Writing style for bullets and answers (owner)
 - Every resume rewording/addition and every free-text answer follows two rule sets: **Humanizer** (remove AI-writing patterns: filler, inflated vocabulary, "not X but Y", rule-of-three padding, em-dash asides, stock openers/closers) and **ASD-STE100 Simplified Technical English** writing rules (short sentences — about 20 words max, active voice, one idea per sentence, plain verbs, no ambiguous pronouns, consistent terms). The STE dictionary is not enforced (it would remove normal technical vocabulary) **(builder's call)**.
-- `claude -p` runs without skills or user settings (§9), so both rule sets are kept as short prompt files in `prompts/style/` and included in the tailoring and answer prompts. Source: the owner's copies of the skills if provided; otherwise the builder writes condensed rule lists (Humanizer from its public repo; STE100 writing rules summarised, not copied from the standard).
+- **Used as real Claude Code skills (owner).** Both skills live in the repo at `.claude/skills/humanizer/` and `.claude/skills/asd-ste100/` (project-scoped, versioned with the code). Writing calls (tailoring, free-text answers) load project settings and may use only the Skill tool (§9). Source: the owner's copies if provided; otherwise Humanizer from its public repo and a builder-written STE100 skill summarising the writing rules (not copied from the standard).
 - A cheap code check after generation: sentence length, banned-phrase list, no em-dashes. A failure triggers one regeneration; a second failure escalates the row to review.
 
 ## 9. LLM calls (owner: Claude Code subscription, headless)
@@ -253,11 +253,18 @@ Rules for every tier:
 | Choice fields, field→profile mapping (tier 2), seniority when unclear | Haiku (owner says Haiku 5.5; confirm ID after the Claude Code upgrade) |
 | Tier 3 browser driving | Sonnet 5.5 |
 
-Invocation (non-tier-3):
+Invocation, run from the repo root:
 ```
+# writing calls (tailoring, free-text answers): skills on
 /opt/homebrew/bin/claude -p --model <id> --output-format json --json-schema <file> \
-  --tools "" --setting-sources "" --strict-mcp-config --no-session-persistence
+  --setting-sources project --tools "Skill" --strict-mcp-config --no-session-persistence
+
+# classification calls (choice fields, field mapping, seniority): nothing loaded
+/opt/homebrew/bin/claude -p --model <id> --output-format json --json-schema <file> \
+  --setting-sources "" --tools "" --strict-mcp-config --no-session-persistence
 ```
+- Writing prompts name the two skills explicitly. `.claude/settings.json` in the repo stays minimal (no hooks, no MCP servers), so loading project settings brings in the skills and nothing else. The project `CLAUDE.md`, if any, is kept short because it also loads.
+- Skill use adds a tool turn per call (more tokens). Day one: confirm both skills are invoked in `-p` (check the JSON transcript) and measure the extra usage.
 Tier 3 adds `--mcp-config <playwright-only.json>` and allows only that server's tools. Verify on day one whether `--bare` still authenticates from launchd; use it only if it does. Model IDs live in `config.yaml`. Stay on the CLI; don't extract the OAuth token.
 
 ## 10. Usage tracking and the daily cap
@@ -279,7 +286,7 @@ Tier 3 adds `--mcp-config <playwright-only.json>` and allows only that server's 
 ## 12. Security
 - Keychain: Notion token, mail token / Gmail app password, ATS tenant passwords.
 - Git-ignored: `profile.yaml`, `answers_bank.md`, `resume/`, `output/`, `data/`, `logs/`.
-- Least privilege: Notion → one database; mail read-only; no listening ports; `claude -p` with no tools (tier 3: Playwright MCP only).
+- Least privilege: Notion → one database; mail read-only; no listening ports; `claude -p` writing calls allow only the Skill tool, classification calls no tools, tier 3 the Playwright MCP only.
 - Dedicated Chrome profile.
 
 ## 12a. Engineering principles (owner: simplicity)
@@ -317,7 +324,7 @@ $0 recurring beyond the Claude subscription. Equivalent LLM cost is tracked and 
 
 ## 15. Day-one verification checklist
 1. School tenant allows `Mail.Read` consent (else switch to Gmail first).
-2. `claude -p` from launchd: PATH, Keychain auth, `--bare` behavior, usage-limit error shape, `total_cost_usd` present.
+2. `claude -p` from launchd: PATH, Keychain auth, `--bare` behavior, usage-limit error shape, `total_cost_usd` present, **both project skills invoked** with `--setting-sources project --tools Skill`.
 3. Notifications from launchd processes.
 4. FreeHire backfill in daily slices within the request budget.
 5. LinkedIn: 429 behavior at 100/term from the home IP; how JobSpy reports it; detail-fetch path.
@@ -334,6 +341,6 @@ Work authorization (owner): **Canada — work permit, no sponsorship needed. US 
 
 Plan (owner): $100/month Claude plan.
 
-Writing style (owner): Humanizer + ASD-STE100 for bullets and answers (§8.7).
+Writing style (owner): Humanizer + ASD-STE100 as real Claude Code skills, loaded in headless writing calls (§8.7, §9).
 
 Engineering (owner): Python, light runtime, simple design patterns, test-driven, simplicity first (§12a).

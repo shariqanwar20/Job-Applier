@@ -235,7 +235,7 @@ sequenceDiagram
 | Choice fields, tier 2 field mapping, unclear seniority | Haiku (confirm ID after upgrade) |
 | Tier 3 browser driving | Sonnet 5.5 |
 
-**Writing style:** every bullet and answer follows **Humanizer** (no AI-sounding phrasing) and **ASD-STE100** writing rules (short sentences, active voice, one idea per sentence). Both are prompt files, because `claude -p` runs without skills. A quick code check catches long sentences and banned phrases; on failure it retries once, then the row goes to review.
+**Writing style:** every bullet and answer follows **Humanizer** (no AI-sounding phrasing) and **ASD-STE100** writing rules (short sentences, active voice, one idea per sentence). Both are real Claude Code skills stored in the repo (`.claude/skills/`). Writing calls load them in `claude -p` with only the Skill tool allowed. A quick code check catches long sentences and banned phrases; on failure it retries once, then the row goes to review.
 
 At most 4 jobs start LLM work per hour (adjustable), so the pipeline doesn't use up your plan's 5-hour window in one burst. Every call records its tokens and **equivalent cost** (`total_cost_usd`). That figure isn't billed on your subscription but works as a usage gauge. There's **one overall daily cap**; once it's hit, remaining jobs wait until the next day.
 
@@ -248,7 +248,7 @@ At most 4 jobs start LLM work per hour (adjustable), so the pipeline doesn't use
 | **Locks** | Python `fcntl.flock` + PID. A crashed run can't block later runs |
 | **Paths** | launchd has a bare PATH, so the scripts use full paths to `uv`, `claude` and `tectonic` |
 | **Secrets** | Keychain: Notion token, mail token, a password per Workday-style account (saved before the account is created) |
-| **Least access** | Notion sees one database · mail is read-only · `claude -p` has no tools (tier 3: browser only) · no ports opened |
+| **Least access** | Notion sees one database · mail is read-only · writing calls: Skill tool only · classification calls: no tools · tier 3: browser only · no ports opened |
 | **Chrome** | Dedicated profile. Opens without taking focus where possible. The automation banner is left alone (no evasion) |
 
 **Day-one checks:** school mailbox allows app access (otherwise switch to Gmail before creating any accounts) · `claude -p` from launchd (login, usage-limit error, cost field) · notifications · FreeHire backfill budget · LinkedIn blocking rate · Chrome focus and CAPTCHA rate · tectonic cache.
