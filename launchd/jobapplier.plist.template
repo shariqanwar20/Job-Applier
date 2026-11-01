@@ -14,7 +14,8 @@
         <string>__REPO__</string>
         <string>python</string>
         <string>-m</string>
-        <string>jobapplier.discover</string>
+        <string>jobapplier</string>
+        <string>discover</string>
     </array>
     <key>WorkingDirectory</key>
     <string>__REPO__</string>

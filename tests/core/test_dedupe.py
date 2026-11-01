@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
-from jobapplier import db
-from jobapplier.dedupe import assign, pushable, summarize
-from jobapplier.identity import posting_identity
+from jobapplier.core import db
+from jobapplier.core.dedupe import assign, pushable, summarize
+from jobapplier.core.identity import posting_identity
 from jobapplier.models import Posting
 
 NOW = datetime(2026, 10, 31, 12, tzinfo=timezone.utc)

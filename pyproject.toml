@@ -9,3 +9,4 @@ dev = ["pytest"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+addopts = "--import-mode=importlib"

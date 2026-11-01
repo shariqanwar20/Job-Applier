@@ -2,7 +2,7 @@ import json, pathlib
 from jobapplier.sources import freehire
 from jobapplier.sources.freehire import FreeHire
 
-PAGE = json.loads((pathlib.Path(__file__).parent / "fixtures/freehire_page.json").read_text())
+PAGE = json.loads((pathlib.Path(__file__).parents[1] / "fixtures/freehire_page.json").read_text())
 
 
 class FakeResponse:

@@ -1,37 +1,5 @@
-import subprocess
-import sys
-import time
-
-import requests
-
-from jobapplier import db, dedupe
-
-BASE = "https://api.notion.com"
-
-
-class NotionError(Exception):
-    pass
-
-
-class Notion:
-    def __init__(self, token: str, session=None, sleep=time.sleep):
-        self.session, self.sleep = session or requests.Session(), sleep
-        self.headers = {"Authorization": f"Bearer {token}", "Notion-Version": "2025-09-03", "Content-Type": "application/json"}
-
-    def request(self, method: str, path: str, body: dict | None = None) -> dict:
-        for attempt in range(6):
-            self.sleep(0.35)  # stays under Notion's ~3 requests/second
-            try:
-                resp = self.session.request(method, BASE + path, headers=self.headers, json=body, timeout=30)
-            except requests.RequestException as e:
-                raise NotionError(f"network: {type(e).__name__}") from None  # the exception text can carry the URL
-            if resp.status_code in (429, 529) and attempt < 5:
-                self.sleep(float(resp.headers.get("Retry-After", 1)))
-                continue
-            break
-        if not 200 <= resp.status_code < 300:
-            raise NotionError(f"{resp.status_code} {resp.text[:300]}")
-        return resp.json()
+from jobapplier.core import db, dedupe
+from jobapplier.notion.client import Notion, NotionError
 
 
 def _options(*names: str) -> dict:
@@ -53,15 +21,6 @@ SCHEMA = {
     "Decision": _options("New", "Approve", "Approve + review", "Skip"),
     "Status": _options("New"),
 }
-
-
-def create_database(n: Notion, parent_page_id: str) -> tuple[str, str]:
-    r = n.request("POST", "/v1/databases", {
-        "parent": {"type": "page_id", "page_id": parent_page_id},
-        "title": [{"text": {"content": "Jobs"}}],
-        "initial_data_source": {"properties": SCHEMA},
-    })
-    return r["id"], r["data_sources"][0]["id"]
 
 
 def _text(value: str) -> list[dict]:
@@ -119,19 +78,3 @@ def push(conn, n: Notion, ds_id: str, rules) -> tuple[int, list[str]]:
 
 def set_status(n: Notion, database_id: str, text: str) -> None:
     n.request("PATCH", f"/v1/databases/{database_id}", {"description": [{"text": {"content": text[:2000]}}]})
-
-
-def keychain(service: str) -> str:
-    out = subprocess.run(["security", "find-generic-password", "-s", service, "-w"], capture_output=True, text=True, check=True)
-    return out.stdout.strip()
-
-
-def main(argv: list[str]) -> None:
-    if len(argv) != 2 or argv[0] != "setup":
-        sys.exit("usage: python -m jobapplier.notion setup <parent_page_id>")
-    database_id, ds_id = create_database(Notion(keychain("jobapplier-notion")), argv[1])
-    print(f"Paste into your config.yaml:\nnotion:\n  database_id: {database_id}\n  data_source_id: {ds_id}")
-
-
-if __name__ == "__main__":
-    main(sys.argv[1:])

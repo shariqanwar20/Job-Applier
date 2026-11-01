@@ -1,6 +1,6 @@
 from jobapplier.sources.base import Source
 from jobapplier.sources.freehire import FreeHire
-from jobapplier.sources.jobspy_sources import Indeed, LinkedIn
+from jobapplier.sources.jobspy import Indeed, LinkedIn
 
 SOURCES = {"freehire": FreeHire, "indeed": Indeed, "linkedin": LinkedIn}
 

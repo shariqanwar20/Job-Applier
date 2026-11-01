@@ -1,5 +1,5 @@
 import pandas as pd
-from jobapplier.sources.jobspy_sources import Indeed, LinkedIn, from_record
+from jobapplier.sources.jobspy import Indeed, LinkedIn, from_record
 
 INDEED = {"id": "in-d22c5896bdbb2211", "site": "indeed", "title": "Software Engineer II, Full Stack (Card Pre-Swipe Experience)",
           "company": "Affirm", "location": "Toronto, ON, CA", "date_posted": "2026-10-30",

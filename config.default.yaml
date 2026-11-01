@@ -25,5 +25,5 @@ sources:
   indeed: {terms: [software engineer, full stack engineer], location: Canada, country: Canada, results_wanted: 100, delay_seconds: [4, 8]}
   linkedin: {terms: [software engineer, full stack engineer], location: Canada, results_wanted: 100, delay_seconds: [4, 8]}
 notion:
-  database_id: ""        # set in your config.yaml; `python -m jobapplier.notion setup` prints it
+  database_id: ""        # set in your config.yaml; `python -m jobapplier notion-setup` prints it
   data_source_id: ""     # set in your config.yaml too

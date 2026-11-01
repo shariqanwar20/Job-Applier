@@ -1,5 +1,5 @@
 import pytest
-from jobapplier.filters import Rules, norm, is_target_title, is_intern, is_notable, keep, cluster_key
+from jobapplier.core.filters import Rules, norm, is_target_title, is_intern, is_notable, keep, cluster_key
 from jobapplier.models import Posting
 
 def test_norm():

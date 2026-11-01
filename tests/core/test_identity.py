@@ -1,5 +1,5 @@
 import pytest
-from jobapplier.identity import posting_identity
+from jobapplier.core.identity import posting_identity
 
 @pytest.mark.parametrize("url,expected", [
     ("https://job-boards.greenhouse.io/affirm/jobs/8042399003?utm_source=freehire.me", "greenhouse:affirm:8042399003"),

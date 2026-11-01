@@ -1,5 +1,5 @@
 import pytest
-from jobapplier.rank import city_rank, is_remote_us, min_years, rank
+from jobapplier.core.rank import city_rank, is_remote_us, min_years, rank
 
 @pytest.mark.parametrize("loc,r", [
     ("Toronto, ON", 0), ("Mississauga Ontario Canada", 0), ("Canada, BC, Vancouver", 1),

@@ -22,7 +22,7 @@ Sources: the FreeHire public API, and LinkedIn and Indeed through [python-jobspy
 3. Create the database under that page. The page ID is the 32-character string at the end of the page URL:
 
    ```
-   uv run python -m jobapplier.notion setup <parent_page_id>
+   uv run python -m jobapplier notion-setup <parent_page_id>
    ```
 
    It prints a `notion:` block. Paste it into a new file named `config.yaml` in the repo root (the file is git-ignored).
@@ -53,7 +53,7 @@ The city lists are tiers, best first; remote and everything else rank after the 
 ## Run once by hand
 
 ```
-uv run python -m jobapplier.discover
+uv run python -m jobapplier discover
 ```
 
 Run it twice to check de-duplication: the second run should report no new rows. The database description in Notion shows the time and errors of the last run.

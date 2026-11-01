@@ -1,9 +1,9 @@
 import sqlite3
 from datetime import datetime, timedelta
 
-from jobapplier.filters import Rules, cluster_key, is_intern, is_notable
+from jobapplier.core.filters import Rules, cluster_key, is_intern, is_notable
+from jobapplier.core.rank import city_rank, is_remote_us, rank
 from jobapplier.models import Posting
-from jobapplier.rank import city_rank, is_remote_us, rank
 
 _ATS = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby", "workday": "Workday"}
 

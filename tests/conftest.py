@@ -3,7 +3,8 @@ import pathlib
 import pytest
 import yaml
 
-from jobapplier.filters import Rules
+from jobapplier.core.filters import Rules
+from jobapplier.models import Posting
 
 ROOT = pathlib.Path(__file__).parent.parent
 
@@ -16,6 +17,22 @@ def config():
 @pytest.fixture
 def rules(config):
     return Rules.from_config(config)
+
+
+AFFIRM_INDEED = Posting(
+    "indeed", "in-1", "Software Engineer II, Full Stack", "Affirm", "Toronto, ON",
+    "https://job-boards.greenhouse.io/affirm/jobs/8042399003", "2026-10-30",
+)
+
+
+class FakeSource:
+    def __init__(self, name, result=None, exc=None):
+        self.name, self.result, self.exc = name, result, exc
+
+    def fetch(self):
+        if self.exc:
+            raise self.exc
+        return self.result
 
 
 class Resp:
@@ -42,10 +59,10 @@ class FakeSession:
 
 
 class FakeNotion:
-    """In-memory stand-in for jobapplier.notion.Notion: pages by id, create fails on the Nth attempt in fail_on_create."""
+    """In-memory stand-in for jobapplier.notion.client.Notion: pages by id, create fails on the Nth attempt in fail_on_create."""
 
     def __init__(self, fail_on_create=()):
-        from jobapplier.notion import NotionError
+        from jobapplier.notion.client import NotionError
 
         self.error = NotionError
         self.pages, self.fail_on_create, self.creates, self.description = {}, set(fail_on_create), 0, None
