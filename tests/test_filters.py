@@ -1,5 +1,5 @@
 import pytest
-from jobapplier.filters import norm, is_target_title, is_intern, is_notable, keep, cluster_key
+from jobapplier.filters import Rules, norm, is_target_title, is_intern, is_notable, keep, cluster_key
 from jobapplier.models import Posting
 
 def test_norm():
@@ -37,3 +37,8 @@ def test_cluster_key_ignores_suffixes_and_parentheticals():
 
 def test_shipped_config_gives_source_order(rules):
     assert rules.source_order == ("freehire", "indeed", "linkedin")
+
+
+def test_empty_lists_match_nothing(config):
+    r = Rules.from_config({**config, "rules": {**config["rules"], "exclude": [], "intern": []}})
+    assert is_target_title("Senior Software Engineer", r) and not is_intern("Software Engineer Intern", r)

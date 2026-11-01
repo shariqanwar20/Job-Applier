@@ -4,7 +4,12 @@ import yaml
 
 
 def _merge(base: dict, over: dict) -> dict:
-    return {k: _merge(base[k], v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v for k, v in {**base, **over}.items()}
+    out = dict(base)
+    for k, v in over.items():
+        if v is None:  # a bare `rules:` in the override keeps the default
+            continue
+        out[k] = _merge(base[k], v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
+    return out
 
 
 def load_config(root: Path) -> dict:

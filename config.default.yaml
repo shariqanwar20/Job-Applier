@@ -19,6 +19,7 @@ rules:
   # URL hosts that are job boards, not the employer's own page (substring match): no stable identity.
   aggregator_hosts: [whatjobs.com, adzuna., linkedin.com, indeed.com, torre.ai]
 # Fetch order; also the tie-break priority when merging a cluster's members.
+# A config.yaml override can change a source's settings but not remove a source (edit this list in your own copy for that).
 sources:
   freehire: {countries: [ca], regions: [none], categories: [software_engineering, fullstack, backend, frontend, ai_engineering, mobile]}
   indeed: {terms: [software engineer, full stack engineer], location: Canada, country: Canada, results_wanted: 100, delay_seconds: [4, 8]}

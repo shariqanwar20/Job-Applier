@@ -14,6 +14,8 @@ def norm(text: str) -> str:
 
 
 def _words(words: list[str]) -> re.Pattern:
+    if not words:  # an empty alternation would match every title
+        return re.compile(r"(?!)")
     return re.compile(r"\b(" + "|".join(re.escape(w) for w in words) + r")\b")
 
 
