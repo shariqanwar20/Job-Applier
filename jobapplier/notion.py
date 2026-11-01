@@ -21,9 +21,12 @@ class Notion:
     def request(self, method: str, path: str, body: dict | None = None) -> dict:
         for attempt in range(6):
             self.sleep(0.35)  # stays under Notion's ~3 requests/second
-            resp = self.session.request(method, BASE + path, headers=self.headers, json=body, timeout=30)
+            try:
+                resp = self.session.request(method, BASE + path, headers=self.headers, json=body, timeout=30)
+            except requests.RequestException as e:
+                raise NotionError(f"network: {type(e).__name__}") from None  # the exception text can carry the URL
             if resp.status_code in (429, 529) and attempt < 5:
-                self.sleep(int(resp.headers.get("Retry-After", 1)))
+                self.sleep(float(resp.headers.get("Retry-After", 1)))
                 continue
             break
         if not 200 <= resp.status_code < 300:
@@ -62,7 +65,7 @@ def create_database(n: Notion, parent_page_id: str) -> tuple[str, str]:
 
 
 def _text(value: str) -> list[dict]:
-    return [{"text": {"content": value[:2000]}}]  # Notion rejects longer rich text
+    return [{"text": {"content": value[:2000]}}] if value else []  # Notion rejects longer rich text
 
 
 def page_properties(job_id: str, s: dict, first_seen: str) -> dict:

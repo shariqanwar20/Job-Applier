@@ -35,7 +35,10 @@ class FakeSession:
 
     def request(self, method, url, headers=None, json=None, timeout=None):
         self.calls.append({"method": method, "url": url, "headers": headers, "json": json, "timeout": timeout})
-        return self.responses.pop(0)
+        r = self.responses.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
 
 
 class FakeNotion:

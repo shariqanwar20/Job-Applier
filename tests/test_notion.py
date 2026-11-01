@@ -2,6 +2,7 @@ import subprocess
 from datetime import datetime, timezone
 
 import pytest
+import requests
 from conftest import FakeNotion, FakeSession, Resp
 
 from jobapplier import db, notion
@@ -45,7 +46,7 @@ def test_page_properties_shape():
     assert props["Decision"]["select"]["name"] == "New" and props["Flags"]["multi_select"] == [{"name": "Remote US"}]
     assert props["Status"]["select"]["name"] == "New" and props["Link"]["url"] == "https://x"
     assert props["First seen"]["date"]["start"] == "2026-10-31T12:00:00+00:00"
-    assert "Posted" not in props
+    assert "Posted" not in props and props["Alt locations"] == {"rich_text": []}
 
 
 def test_page_properties_posted_and_long_text():
@@ -124,3 +125,13 @@ def test_push_sends_the_repost_flag_and_data_source_parent(rules):
     page = next(b for p, b in sent if p == "/v1/pages")
     assert page["parent"] == {"type": "data_source_id", "data_source_id": "ds1"}
     assert {"name": "Repost"} in page["properties"]["Flags"]["multi_select"]
+
+
+def test_push_treats_a_network_error_as_a_per_row_error(rules):
+    ok = lambda body: Resp(200, body)
+    s = FakeSession([ok({"results": []}), ok({"id": "p1"}), ok({"results": []}), requests.ConnectionError("https://api.notion.com boom"),
+                     ok({"results": []}), ok({"id": "p3"})])
+    conn = seed(rules)
+    created, errors = notion.push(conn, Notion("tok", session=s, sleep=lambda _: None), "ds1", rules)
+    assert created == 2 and errors == ["notion: J2: network: ConnectionError"]
+    assert [r[0] for r in conn.execute("SELECT notion_page_id FROM clusters ORDER BY id")] == ["p1", None, "p3"]
