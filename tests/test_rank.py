@@ -6,8 +6,8 @@ from jobapplier.rank import city_rank, is_remote_us, min_years, rank
     ("Montréal, Canada", 2), ("CAD Remote – ON", 3), ("Remote Canada", 3),
     ("Remote, United States", 4), ("Ottawa, ON, ca", 5), ("", 5),
 ])
-def test_city_rank(loc, r):
-    assert city_rank(loc) == r
+def test_city_rank(loc, r, rules):
+    assert city_rank(loc, rules) == r
 
 def test_is_remote_us():
     assert is_remote_us("Remote - USA") and not is_remote_us("Remote Canada") and not is_remote_us("Toronto")
@@ -22,11 +22,11 @@ def test_is_remote_us():
 def test_min_years(text, y):
     assert min_years(text) == y
 
-def test_rank():
-    assert rank("Associate Software Engineer", "", "", False) == 1
-    assert rank("Software Engineer I", "5 years of experience", "", False) == 1
-    assert rank("Software Engineer II", "2+ years of experience", "middle", False) == 2
-    assert rank("Software Engineer II", "5+ years of experience", "junior", False) == 3
-    assert rank("Software Developer", "", "junior", False) == 1
-    assert rank("Software Developer", "", "", False) == 3
-    assert rank("Software Engineer Intern", "", "intern", True) == 1
+def test_rank(rules):
+    assert rank("Associate Software Engineer", "", "", False, rules) == 1
+    assert rank("Software Engineer I", "5 years of experience", "", False, rules) == 1
+    assert rank("Software Engineer II", "2+ years of experience", "middle", False, rules) == 2
+    assert rank("Software Engineer II", "5+ years of experience", "junior", False, rules) == 3
+    assert rank("Software Developer", "", "junior", False, rules) == 1
+    assert rank("Software Developer", "", "", False, rules) == 3
+    assert rank("Software Engineer Intern", "", "intern", True, rules) == 1

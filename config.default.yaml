@@ -1,0 +1,28 @@
+lookback_days: 3        # every source's freshness window
+include_reposts: false  # true: a reposted job (same ATS id, >48h after first seen) gets its own flagged row
+rules:
+  # Whole words/phrases matched on the normalized title (lowercase, ASCII, punctuation -> space).
+  include: [developer, engineer, programmer, software, full stack, fullstack, back end, backend, front end, frontend, sde, mobile, developpeur, developpeuse, ingenieur logiciel, ingenieure logiciel]
+  # Seniority words that drop a title.
+  exclude: [senior, sr, staff, principal, lead, manager, director, architect, head of]
+  # Intern/co-op titles are kept only at a notable company.
+  intern: [intern, internship, co op, coop, stagiaire, stage]
+  # Title words that rank a posting 1 (new grad / junior).
+  rank1_title: [new grad, graduate, entry level, junior, jr, associate]
+  # Location preference tiers, best first; remote and everything else rank after the last tier.
+  cities:
+    - [toronto, mississauga, markham, brampton, vaughan, oakville, richmond hill, north york, etobicoke, scarborough]
+    - [vancouver, burnaby]
+    - [montreal]
+  # Companies whose intern/co-op roles are worth keeping (whole words in the company name).
+  notable_companies: [google, amazon, microsoft, apple, meta, netflix, nvidia, shopify, stripe, uber, airbnb, databricks, snowflake, salesforce, adobe, intel, amd, ibm, oracle, cisco, atlassian, cohere, wealthsimple, rbc, td, scotiabank, bmo, cibc, disney, bloomberg, jane street, citadel, two sigma, palantir, openai, anthropic]
+  # URL hosts that are job boards, not the employer's own page (substring match): no stable identity.
+  aggregator_hosts: [whatjobs.com, adzuna., linkedin.com, indeed.com, torre.ai]
+# Fetch order; also the tie-break priority when merging a cluster's members.
+sources:
+  freehire: {countries: [ca], regions: [none], categories: [software_engineering, fullstack, backend, frontend, ai_engineering, mobile]}
+  indeed: {terms: [software engineer, full stack engineer], location: Canada, country: Canada, results_wanted: 100, delay_seconds: [4, 8]}
+  linkedin: {terms: [software engineer, full stack engineer], location: Canada, results_wanted: 100, delay_seconds: [4, 8]}
+notion:
+  database_id: ""        # set in your config.yaml; `python -m jobapplier.notion setup` prints it
+  data_source_id: ""     # set in your config.yaml too

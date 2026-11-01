@@ -1,18 +1,19 @@
 import re
 from urllib.parse import parse_qs, urlsplit
 
-_AGGREGATORS = ("whatjobs.com", "adzuna.", "linkedin.com", "indeed.com", "torre.ai")
+from jobapplier.filters import Rules
+
 _GREENHOUSE_HOST = re.compile(r"(job-)?boards(\.eu)?\.greenhouse\.io")
 _GREENHOUSE_PATH = re.compile(r"/([^/]+)/jobs/([^/]+)")
 _LEVER_PATH = re.compile(r"/([^/]+)/([^/]+)")
 _WORKDAY_HOST = re.compile(r"([^.]+)\.wd\d+\.myworkdayjobs\.com")
 
 
-def posting_identity(url: str) -> str | None:
+def posting_identity(url: str, rules: Rules) -> str | None:
     """Stable ID for the same job seen via different sources; None when the URL can't identify one."""
     parts = urlsplit(url.strip().lower())
     host, path = parts.hostname or "", parts.path.rstrip("/")
-    if not host or any(a in host for a in _AGGREGATORS):
+    if not host or any(a in host for a in rules.aggregators):
         return None
     if _GREENHOUSE_HOST.fullmatch(host):
         if m := _GREENHOUSE_PATH.match(path):

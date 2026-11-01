@@ -14,5 +14,5 @@ from jobapplier.identity import posting_identity
     ("https://www.linkedin.com/jobs/view/4485119071", None),
     ("", None),
 ])
-def test_posting_identity(url, expected):
-    assert posting_identity(url) == expected
+def test_posting_identity(url, expected, rules):
+    assert posting_identity(url, rules) == expected

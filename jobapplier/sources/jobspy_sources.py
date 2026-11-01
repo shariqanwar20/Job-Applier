@@ -5,6 +5,7 @@ import jobspy
 import pandas as pd
 
 from jobapplier.models import Posting
+from jobapplier.sources.base import Source
 
 
 def _s(v) -> str:
@@ -24,28 +25,50 @@ def from_record(site: str, rec: dict) -> Posting:
     )
 
 
-def fetch(site: str, terms: list[str], results_wanted: int, hours_old: int,
-          scrape=jobspy.scrape_jobs, sleep=time.sleep) -> tuple[list[Posting], str | None]:
-    """Never raises. A 429 stops the remaining terms; any other failure is reported and the loop continues."""
-    extra = {"linkedin_fetch_description": False} if site == "linkedin" else {"country_indeed": "Canada"}
-    postings: list[Posting] = []
-    error = None
-    for i, term in enumerate(terms):
-        if i:
-            sleep(random.uniform(4, 8))
-        try:
-            df = scrape(site_name=[site], search_term=term, location="Canada",
-                        results_wanted=results_wanted, hours_old=hours_old, **extra)
-        except Exception as e:
-            if "429" in str(e):
+class JobSpySource(Source):
+    def __init__(self, cfg: dict, lookback_days: int, scrape=None, sleep=time.sleep):
+        self.cfg, self.hours_old = cfg, lookback_days * 24
+        self.scrape, self.sleep = scrape or jobspy.scrape_jobs, sleep
+
+    def extra(self) -> dict:
+        """Site-specific scrape_jobs arguments."""
+        return {}
+
+    def fetch(self) -> tuple[list[Posting], str | None]:
+        """Never raises. A 429 stops the remaining terms; any other failure is reported and the loop continues."""
+        site = self.name
+        postings: list[Posting] = []
+        error = None
+        for i, term in enumerate(self.cfg["terms"]):
+            if i:
+                self.sleep(random.uniform(*self.cfg["delay_seconds"]))
+            try:
+                df = self.scrape(site_name=[site], search_term=term, location=self.cfg["location"],
+                                 results_wanted=self.cfg["results_wanted"], hours_old=self.hours_old, **self.extra())
+            except Exception as e:
+                if "429" in str(e):
+                    return postings, f"{site}: 429"
+                error = f"{site}: {e}"
+                continue
+            postings += [from_record(site, r) for r in df.to_dict("records")]
+            # JobSpy reports HTTP failures here instead of raising, and still returns the rows it got.
+            message = df.attrs.get("errors", {}).get(site)
+            if message and "429" in message:
                 return postings, f"{site}: 429"
-            error = f"{site}: {e}"
-            continue
-        postings += [from_record(site, r) for r in df.to_dict("records")]
-        # JobSpy reports HTTP failures here instead of raising, and still returns the rows it got.
-        message = df.attrs.get("errors", {}).get(site)
-        if message and "429" in message:
-            return postings, f"{site}: 429"
-        if message:
-            error = f"{site}: {message}"
-    return postings, error
+            if message:
+                error = f"{site}: {message}"
+        return postings, error
+
+
+class LinkedIn(JobSpySource):
+    name = "linkedin"
+
+    def extra(self) -> dict:
+        return {"linkedin_fetch_description": False}  # list only: descriptions cost one request per job
+
+
+class Indeed(JobSpySource):
+    name = "indeed"
+
+    def extra(self) -> dict:
+        return {"country_indeed": self.cfg["country"]}

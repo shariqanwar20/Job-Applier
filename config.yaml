@@ -1,8 +1,0 @@
-lookback_days: 3
-include_reposts: false
-notion:
-  database_id: ""        # printed by `python -m jobapplier.notion setup`
-  data_source_id: ""
-linkedin: {terms: ["software engineer", "full stack engineer"], results_wanted: 100}
-indeed: {terms: ["software engineer", "full stack engineer"], results_wanted: 100}
-notable_companies: [google, amazon, microsoft, apple, meta, netflix, nvidia, shopify, stripe, uber, airbnb, databricks, snowflake, salesforce, adobe, intel, amd, ibm, oracle, cisco, atlassian, cohere, wealthsimple, rbc, td, scotiabank, bmo, cibc, disney, bloomberg, jane street, citadel, two sigma, palantir, openai, anthropic]

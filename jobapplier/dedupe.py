@@ -1,11 +1,10 @@
 import sqlite3
 from datetime import datetime, timedelta
 
-from jobapplier.filters import cluster_key, is_intern, is_notable
+from jobapplier.filters import Rules, cluster_key, is_intern, is_notable
 from jobapplier.models import Posting
 from jobapplier.rank import city_rank, is_remote_us, rank
 
-_SOURCE_ORDER = {"freehire": 0, "indeed": 1, "linkedin": 2}
 _ATS = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby", "workday": "Workday"}
 
 
@@ -50,8 +49,8 @@ def pushable(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def summarize(members: list[Posting], notable: list[str], repost: bool) -> dict:
-    ms = sorted(members, key=lambda m: (m.identity is None, city_rank(m.location), _SOURCE_ORDER[m.source]))
+def summarize(members: list[Posting], rules: Rules, repost: bool) -> dict:
+    ms = sorted(members, key=lambda m: (m.identity is None, city_rank(m.location, rules), rules.source_order.index(m.source)))
     first = ms[0]
     detailed = next((m for m in ms if m.description), first)
     # A no-location member can sort first (it has an identity); show a real city while link/identity stay with it.
@@ -63,7 +62,7 @@ def summarize(members: list[Posting], notable: list[str], repost: bool) -> dict:
         "company": first.company,
         "city": city,
         "alt_locations": "; ".join(alts),
-        "rank": rank(first.title, detailed.description, detailed.seniority, is_intern(first.title) and is_notable(first.company, notable)),
+        "rank": rank(first.title, detailed.description, detailed.seniority, is_intern(first.title, rules) and is_notable(first.company, rules), rules),
         "ats": _ATS.get((first.identity or "").split(":")[0], "Other"),
         "posted": min((m.posted for m in ms if m.posted), default=""),
         "flags": flags,

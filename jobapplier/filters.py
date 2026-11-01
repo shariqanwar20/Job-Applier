@@ -1,11 +1,9 @@
 import re
 import unicodedata
+from dataclasses import dataclass
 
 from jobapplier.models import Posting
 
-_INCLUDE = re.compile(r"\b(developer|engineer|programmer|software|full ?stack|back ?end|front ?end|sde|mobile|developpeur|developpeuse|ingenieure? logiciel)\b")
-_EXCLUDE = re.compile(r"\b(senior|sr|staff|principal|lead|manager|director|architect|head of)\b")
-_INTERN = re.compile(r"\b(intern|internship|co ?op|stagiaire|stage)\b")
 _COMPANY_NOISE = set("inc ltd llc corp corporation company co group plc limited sa the".split())
 
 
@@ -15,22 +13,52 @@ def norm(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
 
-def is_target_title(title: str) -> bool:
+def _words(words: list[str]) -> re.Pattern:
+    return re.compile(r"\b(" + "|".join(re.escape(w) for w in words) + r")\b")
+
+
+@dataclass(frozen=True)
+class Rules:
+    include: re.Pattern
+    exclude: re.Pattern
+    intern: re.Pattern
+    junior: re.Pattern
+    cities: tuple[tuple[str, ...], ...]
+    notable: tuple[str, ...]
+    aggregators: tuple[str, ...]
+    source_order: tuple[str, ...]
+
+    @classmethod
+    def from_config(cls, cfg: dict) -> "Rules":
+        r = cfg["rules"]
+        return cls(
+            include=_words(r["include"]),
+            exclude=_words(r["exclude"]),
+            intern=_words(r["intern"]),
+            junior=_words(r["rank1_title"]),
+            cities=tuple(tuple(tier) for tier in r["cities"]),
+            notable=tuple(r["notable_companies"]),
+            aggregators=tuple(r["aggregator_hosts"]),
+            source_order=tuple(cfg["sources"]),
+        )
+
+
+def is_target_title(title: str, rules: Rules) -> bool:
     t = norm(title)
-    return bool(_INCLUDE.search(t)) and not _EXCLUDE.search(t)
+    return bool(rules.include.search(t)) and not rules.exclude.search(t)
 
 
-def is_intern(title: str) -> bool:
-    return bool(_INTERN.search(norm(title)))
+def is_intern(title: str, rules: Rules) -> bool:
+    return bool(rules.intern.search(norm(title)))
 
 
-def is_notable(company: str, notable: list[str]) -> bool:
+def is_notable(company: str, rules: Rules) -> bool:
     c = f" {norm(company)} "
-    return any(f" {norm(n)} " in c for n in notable)
+    return any(f" {norm(n)} " in c for n in rules.notable)
 
 
-def keep(p: Posting, notable: list[str]) -> bool:
-    return is_target_title(p.title) and (not is_intern(p.title) or is_notable(p.company, notable))
+def keep(p: Posting, rules: Rules) -> bool:
+    return is_target_title(p.title, rules) and (not is_intern(p.title, rules) or is_notable(p.company, rules))
 
 
 def cluster_key(company: str, title: str) -> str:
