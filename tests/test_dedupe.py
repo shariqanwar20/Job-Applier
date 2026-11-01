@@ -85,3 +85,13 @@ def test_mark_pushed_removes_cluster_from_pushable():
     cid = assign(conn, P("freehire", "1", "Software Engineer", "Acme", "Toronto, ON", "https://jobs.lever.co/acme/abc"), NOW, False)
     db.mark_pushed(conn, cid, "page1", "https://jobs.lever.co/acme/abc", "lever:acme:abc")
     assert pushable(conn) == []
+
+
+def test_city_falls_back_to_a_located_member():
+    conn = db.connect(":memory:")
+    t = "Software Engineer"
+    assign(conn, P("freehire", "1", t, "Acme", "", "https://jobs.lever.co/acme/abc", no_location=True), NOW, False)
+    cid = assign(conn, P("linkedin", "2", t, "Acme", "Toronto, ON", "https://www.linkedin.com/jobs/view/1"), NOW, False)
+    s = summarize(db.members(conn, cid), [], False)
+    assert s["city"] == "Toronto, ON" and s["alt_locations"] == ""
+    assert s["identity"] == "lever:acme:abc" and s["link"] == "https://jobs.lever.co/acme/abc"

@@ -13,6 +13,7 @@ def assign(conn: sqlite3.Connection, p: Posting, now: datetime, include_reposts:
     """Store p in a cluster and return its id; None if this (source, source_id) is already stored."""
     if conn.execute("SELECT 1 FROM postings WHERE source = ? AND source_id = ?", (p.source, p.source_id)).fetchone():
         return None
+    # Windows and the repost check anchor on the cluster's first_seen, not its latest member's, so a long-running job can't keep extending its own window.
     key, stamp, repost, cid = cluster_key(p.company, p.title), now.isoformat(), 0, None
     if p.identity:
         row = conn.execute(
@@ -53,12 +54,14 @@ def summarize(members: list[Posting], notable: list[str], repost: bool) -> dict:
     ms = sorted(members, key=lambda m: (m.identity is None, city_rank(m.location), _SOURCE_ORDER[m.source]))
     first = ms[0]
     detailed = next((m for m in ms if m.description), first)
-    alts = dict.fromkeys(m.location for m in ms if m.location and m.location != first.location)
-    flags = [f for f, on in (("Remote US", is_remote_us(first.location)), ("Aggregator link", first.identity is None), ("Repost", repost)) if on]
+    # A no-location member can sort first (it has an identity); show a real city while link/identity stay with it.
+    city = next((m.location for m in ms if m.location), "")
+    alts = dict.fromkeys(m.location for m in ms if m.location and m.location != city)
+    flags = [f for f, on in (("Remote US", is_remote_us(city)), ("Aggregator link", first.identity is None), ("Repost", repost)) if on]
     return {
         "title": first.title,
         "company": first.company,
-        "city": first.location,
+        "city": city,
         "alt_locations": "; ".join(alts),
         "rank": rank(first.title, detailed.description, detailed.seniority, is_intern(first.title) and is_notable(first.company, notable)),
         "ats": _ATS.get((first.identity or "").split(":")[0], "Other"),
