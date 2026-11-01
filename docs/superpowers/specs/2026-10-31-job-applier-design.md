@@ -1,7 +1,7 @@
 # JobApplier — Design
 
 Date: 2026-10-31
-Status: Draft v5 (three design reviews applied; owner questions open in §17)
+Status: Draft v6 (three design reviews applied; owner answers in §17)
 
 Decisions marked **(owner)** were made by the owner. **(builder's call)** marks decisions made during design that the owner may override. Unmarked mechanics are part of the design.
 
@@ -197,6 +197,7 @@ Per-adapter content check ("no longer accepting applications", redirect to board
 ### 8.3 Resume tailoring (owner: LaTeX + Sonnet 5.5; rewording, adding, omitting allowed)
 - `resume/master.tex` is the source of truth; each bullet/project/skill line carries a stable ID.
 - Sonnet returns JSON (`--json-schema`): ordered items, each `{id}` (unchanged), `{id, text}` (reworded), or `{new: text, source: id}` (added). **An added item derives from exactly one master item** (a split or expansion of that bullet), never a combination of several, so it can't fabricate by recombining facts **(builder's call)**.
+- **Writing style (owner): Humanizer + ASD-STE100.** See §8.7.
 - **Only master IDs may be sources.** `answers_bank.md` is for form answers, never resume content.
 - **Grounding validator:** rejects any number, percentage, technology, employer, or title not in the cited master items, and scope-inflating verb swaps (deny-map: contributed/assisted/helped/supported → led/owned/architected/spearheaded/drove). The validator applies equally to reworded and added items. Rejected items revert to master text and the row is escalated to review.
 - One-page fit: if longer than one page, drop the lowest-ranked optional items and recompile; never drop below the master's required items (floor), never re-prompt.
@@ -238,6 +239,11 @@ Rules for every tier:
 - Poll messages from the adapter's known sender domains (`greenhouse-mail.io`, `myworkday.com`, `ashbyhq.com`, …) received after the action, every few seconds for ~3 min. Extract a 4–8 digit code near "code/verification" keywords, or a verification link on the ATS domain.
 - Never modify, delete, or mark read. Token refresh failure → status page "mail auth expired" + notification; affected jobs `needs_you`.
 
+### 8.7 Writing style for bullets and answers (owner)
+- Every resume rewording/addition and every free-text answer follows two rule sets: **Humanizer** (remove AI-writing patterns: filler, inflated vocabulary, "not X but Y", rule-of-three padding, em-dash asides, stock openers/closers) and **ASD-STE100 Simplified Technical English** writing rules (short sentences — about 20 words max, active voice, one idea per sentence, plain verbs, no ambiguous pronouns, consistent terms). The STE dictionary is not enforced (it would remove normal technical vocabulary) **(builder's call)**.
+- `claude -p` runs without skills or user settings (§9), so both rule sets are kept as short prompt files in `prompts/style/` and included in the tailoring and answer prompts. Source: the owner's copies of the skills if provided; otherwise the builder writes condensed rule lists (Humanizer from its public repo; STE100 writing rules summarised, not copied from the standard).
+- A cheap code check after generation: sentence length, banned-phrase list, no em-dashes. A failure triggers one regeneration; a second failure escalates the row to review.
+
 ## 9. LLM calls (owner: Claude Code subscription, headless)
 
 | Task | Model |
@@ -258,7 +264,7 @@ Tier 3 adds `--mcp-config <playwright-only.json>` and allows only that server's 
 
 - Every `claude -p` result's JSON (model, input/output tokens, duration, `total_cost_usd`) is logged in SQLite with job ID and purpose (tailor / answer / field-map / tier3 / classify). On a subscription `total_cost_usd` is not billed; it is an **equivalent-cost gauge**.
 - Notion: per-row **LLM usage**; status page shows today and the last 7 days by model and purpose, plus each time a plan limit was hit.
-- **One overall daily cap (owner):** `config.yaml: daily_llm_cap_usd` (equivalent cost, all purposes together; builder picks a starting value). When reached, remaining jobs stay `queued` until the next day; the status page says so.
+- **One overall daily cap (owner):** `config.yaml: daily_llm_cap_usd` (equivalent cost, all purposes together). The owner is on the $100/month plan; the builder sets a conservative starting cap and tunes it from the first week's usage data. Opus is used only for answers the Sonnet draft fails the style/grounding checks on twice. When reached, remaining jobs stay `queued` until the next day; the status page says so.
 - **Pacing (builder's call, within the one cap):** at most `max_llm_jobs_per_hour` jobs (default 4) start LLM work per hour, so the pipeline doesn't use up the plan's 5-hour window in one burst; optional `quiet_hours` window preferred for apply runs.
 - Also on the status page: applications per day, FreeHire and Notion request counts.
 - Claude Code does not expose remaining plan quota; a plan-limit error leaves jobs `queued`. Its exact form must be captured on day one.
@@ -275,6 +281,19 @@ Tier 3 adds `--mcp-config <playwright-only.json>` and allows only that server's 
 - Git-ignored: `profile.yaml`, `answers_bank.md`, `resume/`, `output/`, `data/`, `logs/`.
 - Least privilege: Notion → one database; mail read-only; no listening ports; `claude -p` with no tools (tier 3: Playwright MCP only).
 - Dedicated Chrome profile.
+
+## 12a. Engineering principles (owner: simplicity)
+- **Python 3.12**, light runtime: stdlib `sqlite3`, `dataclasses`, `logging`, `subprocess`; third-party only `python-jobspy`, `requests`, `playwright`, `pyyaml`, `msal` (Graph). Notion via plain HTTP, no SDK needed. No ORM, web framework, task queue, or async unless a step proves it needs it.
+- **Few, small patterns:** one `Source` interface (fetch → rows) and one `AtsAdapter` interface (read_fields, fill, submit) with a class per source/ATS; the job state machine in one module (a transition table, no framework); everything else plain functions. No plugin system, no DI container.
+- **Test-driven** (pytest): tests first for the pure core — normalization, identity, clustering, ranking, state transitions, grounding validator, field classification — using the spike data as fixtures. Notion, `claude -p`, mail, and the browser sit behind thin wrappers with fakes in tests.
+- **Build in thin, usable slices**, each useful on its own:
+  1. Discover → dedupe → rank → Notion inbox (no applying).
+  2. Resume tailoring + PDF in Notion for approved rows.
+  3. Greenhouse tier 1 end to end, including the state machine, guard, email codes, CAPTCHA handoff.
+  4. Lever and Ashby tier 1.
+  5. Workday via tier 2.
+  6. Tier 3, only if tier 2's failure rate shows it is needed.
+- When a design detail turns out more complex than its value in practice, the builder simplifies and records why.
 
 ## 13. Repo layout (suggested)
 ```
@@ -308,9 +327,13 @@ $0 recurring beyond the Claude subscription. Equivalent LLM cost is tracked and 
 ## 16. Left to the builder
 Normalization and regexes; delays, pacing, attempt counts; LaTeX ID mechanism; Notion setup script; `notable_companies` seed; starting value of `daily_llm_cap_usd`; job-independent vs job-specific answer classifier; tests (spike data in the session scratchpad as fixtures).
 
-## 17. Owner answers and open question
+## 17. Owner answers
 Answered (2026-10-31): Workday required · interns only at notable companies · apply to US-remote roles tagged Canada · show new same-title reqs again · keep and apply to French postings · resume rewording/adding/omitting allowed, final PDF to Notion · attempt jobs while away · one overall daily usage cap.
 
-**Open 1:** the owner's work-authorization answers for Canada and the US (citizen / PR / permit type, sponsorship needed now or later). These go into `profile.yaml`; without them every form escalates to review, and they decide whether US-remote roles are viable.
+Work authorization (owner): **Canada — work permit, no sponsorship needed. US — sponsorship required.** Stored in `profile.yaml` as deterministic answers. US-remote rows still get applied to (owner) but are flagged `Remote US` so the owner knows sponsorship will be needed.
 
-**Open 2:** the owner's Claude plan (Pro or Max). It sets the starting `daily_llm_cap_usd` and `max_llm_jobs_per_hour`, and whether Opus for hard answers is affordable.
+Plan (owner): $100/month Claude plan.
+
+Writing style (owner): Humanizer + ASD-STE100 for bullets and answers (§8.7).
+
+Engineering (owner): Python, light runtime, simple design patterns, test-driven, simplicity first (§12a).

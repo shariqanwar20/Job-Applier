@@ -1,6 +1,6 @@
 # JobApplier — Architecture (visual)
 
-Draft v5 · 2026-10-31 · Full written spec: [`superpowers/specs/2026-10-31-job-applier-design.md`](superpowers/specs/2026-10-31-job-applier-design.md) (the spec wins if anything here disagrees)
+Draft v6 · 2026-10-31 · Full written spec: [`superpowers/specs/2026-10-31-job-applier-design.md`](superpowers/specs/2026-10-31-job-applier-design.md) (the spec wins if anything here disagrees)
 
 A background job on your Mac finds fresh Canadian software postings every 2 hours, de-duplicates and ranks them into Notion, and applies to the ones you approve. Scraping is plain code. Forms are scripted for Greenhouse, Lever and Ashby, and LLM-assisted for Workday and everything else. Claude tailors the resume and writes free-text answers, and usage is tracked in Notion against one daily cap.
 
@@ -235,6 +235,8 @@ sequenceDiagram
 | Choice fields, tier 2 field mapping, unclear seniority | Haiku (confirm ID after upgrade) |
 | Tier 3 browser driving | Sonnet 5.5 |
 
+**Writing style:** every bullet and answer follows **Humanizer** (no AI-sounding phrasing) and **ASD-STE100** writing rules (short sentences, active voice, one idea per sentence). Both are prompt files, because `claude -p` runs without skills. A quick code check catches long sentences and banned phrases; on failure it retries once, then the row goes to review.
+
 At most 4 jobs start LLM work per hour (adjustable), so the pipeline doesn't use up your plan's 5-hour window in one burst. Every call records its tokens and **equivalent cost** (`total_cost_usd`). That figure isn't billed on your subscription but works as a usage gauge. There's **one overall daily cap**; once it's hit, remaining jobs wait until the next day.
 
 ---
@@ -250,3 +252,20 @@ At most 4 jobs start LLM work per hour (adjustable), so the pipeline doesn't use
 | **Chrome** | Dedicated profile. Opens without taking focus where possible. The automation banner is left alone (no evasion) |
 
 **Day-one checks:** school mailbox allows app access (otherwise switch to Gmail before creating any accounts) · `claude -p` from launchd (login, usage-limit error, cost field) · notifications · FreeHire backfill budget · LinkedIn blocking rate · Chrome focus and CAPTCHA rate · tectonic cache.
+
+---
+
+## 11. How it gets built (simplicity first)
+
+Python 3.12 with standard-library `sqlite3` and dataclasses, and a few packages (JobSpy, requests, Playwright, PyYAML, msal). No ORM, no web framework, no task queue. Two small interfaces, **Source** and **ATS adapter**, plus a state machine in one module. Everything else is plain functions. Tests come first for the core logic, using today's spike data.
+
+```mermaid
+flowchart LR
+  P1["1 · Discover → Notion inbox"] --> P2["2 · Tailored resume PDF"]
+  P2 --> P3["3 · Greenhouse end to end"]
+  P3 --> P4["4 · Lever + Ashby"]
+  P4 --> P5["5 · Workday via tier 2"]
+  P5 --> P6["6 · Tier 3, only if needed"]
+```
+
+Each slice is usable on its own. Slice 1 already gives you the daily ranked inbox.
