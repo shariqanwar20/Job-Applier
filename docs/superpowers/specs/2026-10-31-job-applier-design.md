@@ -1,7 +1,7 @@
 # JobApplier — Design
 
 Date: 2026-10-31
-Status: Draft v6 (three design reviews applied; owner answers in §17)
+Status: Approved v7 (three design reviews + one simplicity review; owner answers in §17). **§18 overrides earlier sections where they disagree.**
 
 Decisions marked **(owner)** were made by the owner. **(builder's call)** marks decisions made during design that the owner may override. Unmarked mechanics are part of the design.
 
@@ -344,3 +344,28 @@ Plan (owner): $100/month Claude plan.
 Writing style (owner): Humanizer + ASD-STE100 as real Claude Code skills, loaded in headless writing calls (§8.7, §9).
 
 Engineering (owner): Python, light runtime, simple design patterns, test-driven, simplicity first (§12a).
+
+## 18. Simplifications (simplicity review, 2026-10-31)
+
+A ponytail-style review cut mechanisms that real usage has not yet shown we need. Each line overrides the section it names. Revisit an item only when the "until" condition is observed.
+
+1. §5.1 No 30-day backfill and no rolling cache of every FreeHire row. Only rows that pass the title filter are stored. Removes §15 item 4.
+2. §5.1 No per-day request counter or `X-RateLimit-Remaining` logic (a run makes a few requests). On a 429, stop FreeHire for that run and record the error.
+3. §5.3 Fixed lookback `lookback_days` (default 3) for every source; no "time since last run" and no `Late` flag. Source-identity dedupe drops the overlap; the Posted column shows age.
+4. §5.4 Repost = the row's posting identity is already in SQLite on a cluster first seen more than 48 h earlier. Off: the row joins that cluster silently. On: a new row flagged `Repost`. No `Repost unknown` flag. FreeHire's `reality.repost_count` is not used (it counts cross-board copies).
+5. §5.1 One FreeHire request type: `/agent/jobs/search` with `countries=ca&regions=none` (regions joins the country OR-group, so one query returns Canada and no-location rows, with full descriptions).
+6. §6.2 No aggregator landing-page parse and §6.4 no target upgrade: the Link is fixed when the row is first shown; rows without a direct ATS link get `Aggregator link`. Until aggregator rows prove common.
+7. §6.4 No `sibling_of_applied` mark. §6.1 no `canonical_key_version`.
+8. §7 Notion sync keeps only query-by-Job-ID before create. No duplicate-page detection (two pages for one Job ID map to one SQLite row; the guard lives in SQLite).
+9. §6.5 Unclear years → rank 3 (no Haiku call). Slice 1 has no `claude -p` at all.
+10. §4/§11 **One LaunchAgent** every 30 min (plus RunAtLoad; launchd coalesces intervals missed during sleep into one run on wake). Each run: discover if the last discover is older than 2 h, then up to `max_jobs_per_run` (default 2) queued jobs. One plist, one lock. No `kickstart`. Until slice 3 the run is discover-only.
+11. §10 No `max_llm_jobs_per_hour` or `quiet_hours`: `max_jobs_per_run` × the 30-min schedule limits the rate, plus the one daily cap.
+12. §8.1 States: `failed` merges into `needs_you`; `skipped`, `closed` and `duplicate` merge into `closed` (reason in Notes); `refilling` merges into `preparing` (recovery: a preparing row with frozen review artifacts → `awaiting_review`, else → `queued`). Status values: New, Queued, Preparing, Awaiting review, Submitting, Submitted, Needs you, Closed.
+13. §8.7 vs §10: a second style/grounding failure goes to review. Free-text answers use Sonnet; `answer_model` in config can be switched to Opus by the owner. No automatic Opus escalation.
+14. §6.3 Soft guard keeps the `Applied to similar` flag (set when the row is shown) but no forced review; built in slice 3.
+15. §4 Watchdog stays (only thing that notices Python/uv failing to start) but without the "Mac awake" check; built in slice 3.
+16. §7/§10 Status: the database description shows last run, last error, row counts, usage today, plan-limit hits. Request counters and per-model tables stay in SQLite.
+17. §9/§15 No `--bare` check.
+18. §7 Notion views are set up by hand once (the API does not manage views). Notion API version `2025-09-03` (data-source endpoints).
+
+Slice 1 builds: FreeHire + Indeed + LinkedIn (list only, 4–8 s jitter, stop on first 429) → title/intern filters → identity → 7-day clustering with city preference → `regions=none` rule → repost rule → rank (regex, then `enrichment.seniority`, else 3) → create-only Notion push → status in the database description → osascript notification on error → one LaunchAgent with an `fcntl` lock and `caffeinate -i`. Not in slice 1: Notion→SQLite pull sync, any state past `new`, `claude -p`, usage tracking, LinkedIn detail fetch, page-body uploads, mail, watchdog.

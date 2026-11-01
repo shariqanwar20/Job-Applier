@@ -1,6 +1,6 @@
 # JobApplier — Architecture (visual)
 
-Draft v6 · 2026-10-31 · Full written spec: [`superpowers/specs/2026-10-31-job-applier-design.md`](superpowers/specs/2026-10-31-job-applier-design.md) (the spec wins if anything here disagrees)
+Draft v6 · 2026-10-31 · Full written spec: [`superpowers/specs/2026-10-31-job-applier-design.md`](superpowers/specs/2026-10-31-job-applier-design.md) (the spec wins if anything here disagrees; its §18 simplifications — one LaunchAgent, fewer states, no backfill — are not yet redrawn here)
 
 A background job on your Mac finds fresh Canadian software postings every 2 hours, de-duplicates and ranks them into Notion, and applies to the ones you approve. Scraping is plain code. Forms are scripted for Greenhouse, Lever and Ashby, and LLM-assisted for Workday and everything else. Claude tailors the resume and writes free-text answers, and usage is tracked in Notion against one daily cap.
 

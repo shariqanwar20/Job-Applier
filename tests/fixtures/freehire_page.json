@@ -1,0 +1,956 @@
+{
+ "data": [
+  {
+   "public_slug": "software-engineer-intern-pipeline-infrastructure-disney-company-xx67z67o",
+   "source": "whatjobs-ca",
+   "manually_added": false,
+   "external_id": "data engineer:156344138",
+   "url": "https://en-ca.whatjobs.com/pub_api__cpl__156344138__7103?geoID=6399&utm_campaign=publisher&utm_medium=api&utm_source=freehire.me",
+   "title": "Software Engineer Intern, Pipeline Infrastructure",
+   "company": "Disney Company",
+   "company_slug": "disney-company",
+   "location": "Vancouver, Canada",
+   "description": "<p>As a Walt Disney Animation Studios Technology Intern, you will have the unique opportunity to work directly with a Disney mentor while exploring all aspects of technology in relation to filmmaking. This immersive program offers hands‑on experience focused on individual craft and multidisciplinary team collaboration. Learn more about our filmmaking process here (opens in new window) .</p>\n<p>The Pipeline Infrastructure team, within the Production Technology department, is responsible for architecting systems to support the production pipeline by implementing new solutions for the unique and challenging problems encountered in our animated content. We do this by working closely with our users to develop the essential software that brings our animated films to life.</p>\n<p>As a Pipeline Infrastructure Intern, you will develop features and/or supporting tools for our next generation pipeline framework. In this role, you will help the team address user needs as they relate to this",
+   "countries": [
+    "ca"
+   ],
+   "regions": [
+    "north_america"
+   ],
+   "work_mode": "hybrid",
+   "skills": [
+    "api",
+    "cpp",
+    "git",
+    "linux",
+    "oop",
+    "python",
+    "rust",
+    "version-control"
+   ],
+   "cities": [
+    "Vancouver"
+   ],
+   "metros": [
+    "Vancouver (CA)"
+   ],
+   "is_tech": "tech",
+   "posted_at": "2026-10-31T11:56:50Z",
+   "created_at": "2026-10-31T11:56:50Z",
+   "updated_at": "2026-10-31T11:57:48Z",
+   "last_seen_at": "2026-10-31T11:56:50Z",
+   "closed_at": null,
+   "enrichment": {
+    "employment_type": "internship",
+    "visa_sponsorship": false,
+    "salary_min": 34,
+    "salary_max": 34,
+    "salary_currency": "CAD",
+    "salary_period": "hour",
+    "seniority": "intern",
+    "education_level": "bachelor",
+    "category": "software_engineering",
+    "domains": [
+     "media"
+    ],
+    "posting_language": "en",
+    "company_type": "inhouse",
+    "company_size": "1000+"
+   },
+   "enriched_at": "2026-10-31T11:57:48Z",
+   "enrichment_version": 2,
+   "reality": {
+    "class": "fresh",
+    "age_days": 0,
+    "repost_count": 1,
+    "mass_posting_count": 1,
+    "fake_freshness": false
+   }
+  },
+  {
+   "public_slug": "software-engineer-iii-td-bank-group-ysfupvip",
+   "source": "whatjobs-ca",
+   "manually_added": false,
+   "external_id": "full stack developer:156545256",
+   "url": "https://en-ca.whatjobs.com/pub_api__cpl__156545256__7103?geoID=6225&utm_campaign=publisher&utm_medium=api&utm_source=freehire.me",
+   "title": "Software Engineer III",
+   "company": "TD Bank Group",
+   "company_slug": "td-bank-group",
+   "location": "Toronto, Canada",
+   "description": "## Software Engineer IIIApply:<br/><br/>Onsite:<br/><br/>Toronto, Ontario:<br/><br/>Full time:<br/><br/>Posted Today:<br/><br/>End Date: November 28, 2026 (30 days left to apply):<br/><br/>R\\\\_1519353**Work Location:**Toronto, Ontario, Canada**Hours:**37.5**Line of Business:**Technology Solutions**Pay Details:**$125,500 - $154,000 CADThe pay details posted reflect a temporary market premium specific to this role that is reassessed annually.TD is committed to providing fair and equitable compensation opportunities to all colleagues. Growth opportunities and skill development are defining features of the colleague experience at TD. Our compensation policies and practices have been designed to allow colleagues to progress through the salary range over time as they progress in their role. The base pay actually offered may vary based upon the candidate's skills and experience, job-related knowledge, geographic location, and other specific business and organizational needs.As a candidate,",
+   "countries": [
+    "ca"
+   ],
+   "regions": [
+    "north_america"
+   ],
+   "skills": [
+    "abac",
+    "accessibility",
+    "ai",
+    "api",
+    "automation",
+    "aws",
+    "azure",
+    "ci-cd",
+    "cloud",
+    "cloud-native",
+    "collibra",
+    "containerization",
+    "dast",
+    "data-engineering",
+    "data-governance",
+    "data-lake",
+    "data-quality",
+    "databricks",
+    "devops",
+    "elasticsearch",
+    "event-driven-architecture",
+    "finops",
+    "git",
+    "infrastructure-as-code",
+    "json",
+    "kafka",
+    "llm",
+    "nosql",
+    "observability",
+    "opensearch",
+    "pandas",
+    "postgresql",
+    "pyspark",
+    "python",
+    "rbac",
+    "sast",
+    "sdlc",
+    "secrets-management",
+    "solution-design",
+    "sql",
+    "sso",
+    "stakeholder-management",
+    "test-automation",
+    "threat-modeling"
+   ],
+   "cities": [
+    "Toronto"
+   ],
+   "metros": [
+    "Toronto (CA)"
+   ],
+   "is_tech": "tech",
+   "posted_at": "2026-10-31T09:54:09Z",
+   "created_at": "2026-10-31T09:54:09Z",
+   "updated_at": "2026-10-31T09:54:53Z",
+   "last_seen_at": "2026-10-31T09:54:09Z",
+   "closed_at": null,
+   "enrichment": {
+    "employment_type": "contract",
+    "salary_min": 125500,
+    "salary_max": 154000,
+    "salary_currency": "CAD",
+    "salary_period": "year",
+    "education_level": "master",
+    "category": "software_engineering",
+    "domains": [
+     "fintech"
+    ],
+    "company_type": "inhouse",
+    "company_size": "1000+"
+   },
+   "enriched_at": "2026-10-31T09:54:53Z",
+   "enrichment_version": 2,
+   "reality": {
+    "class": "stale",
+    "age_days": 0,
+    "repost_count": 1,
+    "mass_posting_count": 1,
+    "fake_freshness": false
+   }
+  },
+  {
+   "public_slug": "sr-software-engineer-unity-technologies-5hm5i4sv",
+   "source": "whatjobs-ca",
+   "manually_added": false,
+   "external_id": "java developer:156645527",
+   "url": "https://en-ca.whatjobs.com/pub_api__cpl__156645527__7103?geoID=6225&utm_campaign=publisher&utm_medium=api&utm_source=freehire.me",
+   "title": "Sr. Software Engineer",
+   "company": "Unity Technologies",
+   "company_slug": "unity-technologies",
+   "location": "Toronto, Canada",
+   "description": "<h3>The opportunity</h3><p>Unity is building a robust, near real-time reporting platform that powers critical analytics and decision-making across our ecosystem. We are looking for a Senior Software Engineer to help architect and implement the distributed data systems that drive this platform at scale.</p><p>In this role, you’ll design and build high-throughput, low-latency data processing pipelines that power reporting used by internal teams and external customers. You’ll operate at the intersection of distributed systems, stream processing, and cloud-native infrastructure - ensuring correctness, reliability, and scalability in a high-volume production environment.</p><p>This is a high-impact role where engineering rigor, architectural clarity, and production ownership matter.</p><h3>What you’ll be doing</h3><ul><li>Own the end-to-end attribution pipeline. You will be a core engineer on the team responsible for getting attribution data right - from the moment a user interacts with an",
+   "countries": [
+    "ca"
+   ],
+   "regions": [
+    "north_america"
+   ],
+   "skills": [
+    "airflow",
+    "analytics",
+    "authentication",
+    "bigquery",
+    "cloud",
+    "cloud-native",
+    "containerization",
+    "data-pipelines",
+    "data-quality",
+    "data-warehousing",
+    "distributed-systems",
+    "docker",
+    "flink",
+    "grpc",
+    "java",
+    "kafka",
+    "kubernetes",
+    "machine-learning",
+    "python",
+    "scala",
+    "spark",
+    "unity",
+    "workflow-orchestration"
+   ],
+   "cities": [
+    "Toronto"
+   ],
+   "metros": [
+    "Toronto (CA)"
+   ],
+   "is_tech": "tech",
+   "posted_at": "2026-10-31T01:53:44Z",
+   "created_at": "2026-10-31T01:53:44Z",
+   "updated_at": "2026-10-31T01:54:25Z",
+   "last_seen_at": "2026-10-31T05:55:01Z",
+   "closed_at": null,
+   "enrichment": {
+    "salary_min": 165600,
+    "salary_max": 273400,
+    "salary_currency": "USD",
+    "salary_period": "year",
+    "seniority": "senior",
+    "category": "software_engineering",
+    "domains": [
+     "gamedev",
+     "adtech"
+    ],
+    "posting_language": "en",
+    "company_type": "product"
+   },
+   "enriched_at": "2026-10-31T01:54:25Z",
+   "enrichment_version": 2,
+   "reality": {
+    "class": "fresh",
+    "age_days": 0,
+    "repost_count": 1,
+    "mass_posting_count": 1,
+    "fake_freshness": false
+   }
+  },
+  {
+   "public_slug": "engineering-manager-conversational-ai-pebl-n6ncu4id",
+   "source": "ashby",
+   "manually_added": false,
+   "external_id": "pebl:03cd41b2-5acd-4f6c-be73-5c6126170af0",
+   "url": "https://jobs.ashbyhq.com/pebl/03cd41b2-5acd-4f6c-be73-5c6126170af0?utm_source=freehire.me",
+   "title": "Engineering Manager, Conversational AI",
+   "company": "Pebl",
+   "company_slug": "pebl",
+   "location": "Toronto, Ontario",
+   "description": "<p><strong>Purpose in Every Position</strong></p><p>Pebl puts a world of talent at your fingertips. With our AI-powered Global Work Platform™, companies can hire, pay, and manage employees in 185+ countries—removing risk, red tape, and guesswork from global growth. Backed by more than a decade of compliance leadership and local expertise, Pebl helps businesses move fast, stay compliant, and scale with confidence. With Pebl, companies everywhere can hire great talent anywhere.</p><p><strong>Where Your Work Moves the Needle.</strong></p><p>At Pebl, every team member drives our success. Joining us means more than filling a role—you’re accountable for results and impact. Our values guide how we operate, execute, and collaborate across borders. By putting them into action, you’ll help us scale faster, compete harder, and lead the future of global work.</p><p><strong>Position Summary</strong></p><p>We are looking for a hands-on Engineering Manager to lead our high-impact Conversational AI",
+   "countries": [
+    "ca"
+   ],
+   "regions": [
+    "north_america"
+   ],
+   "work_mode": "hybrid",
+   "skills": [
+    "agentic-ai",
+    "ai",
+    "api",
+    "aws",
+    "claude-code",
+    "conversational-ai",
+    "kubernetes",
+    "llm",
+    "observability",
+    "postgresql",
+    "python",
+    "react",
+    "saas",
+    "typescript"
+   ],
+   "cities": [
+    "Toronto"
+   ],
+   "metros": [
+    "Toronto (CA)"
+   ],
+   "is_tech": "tech",
+   "auto_apply_available": true,
+   "posted_at": "2026-10-31T01:20:35Z",
+   "created_at": "2026-10-31T11:54:09Z",
+   "updated_at": "2026-10-31T11:54:40Z",
+   "last_seen_at": "2026-10-31T11:54:09Z",
+   "closed_at": null,
+   "enrichment": {
+    "employment_type": "full_time",
+    "salary_min": 154000,
+    "salary_max": 195000,
+    "salary_currency": "CAD",
+    "salary_period": "year",
+    "experience_years_min": 3,
+    "category": "software_engineering",
+    "domains": [
+     "hrtech"
+    ],
+    "posting_language": "en",
+    "company_type": "product"
+   },
+   "enriched_at": "2026-10-31T11:54:40Z",
+   "enrichment_version": 2,
+   "reality": {
+    "class": "fresh",
+    "age_days": 0,
+    "repost_count": 1,
+    "mass_posting_count": 1,
+    "fake_freshness": false
+   }
+  },
+  {
+   "public_slug": "software-engineer-ii-full-stack-card-pre-swipe-experience-affirm-5elgqi5e",
+   "source": "greenhouse",
+   "manually_added": false,
+   "external_id": "affirm:8042399003",
+   "url": "https://job-boards.greenhouse.io/affirm/jobs/8042399003?utm_source=freehire.me",
+   "title": "Software Engineer II, Full Stack (Card Pre-Swipe Experience)",
+   "company": "Affirm",
+   "company_slug": "affirm",
+   "location": "Remote Canada",
+   "description": "<div><p>At Affirm, we exist for the moments that matter—giving people a clear, predictable way to pay over time, with no hidden fees, no surprises, and no tradeoffs on what matters most.</p></div><p>We build the experiences that connect a customer's intent to buy with the flexibility of Affirm Card. From making financing options easier to understand to creating intuitive checkout journeys, we turn complex financial capabilities into simple, trustworthy experiences. Our roadmap includes evolving Default Terms, supporting additional cards, and strengthening the mobile experiences customers rely on when deciding how to pay.</p>\n<p>Our work sits at the intersection of mobile, backend systems, and product innovation. We partner closely with Product, Design, and engineering teams across Affirm to introduce new capabilities while protecting the reliability of our checkout-critical surfaces.</p>\n<p>As a full-stack Software Engineer II, you'll help bring these experiences to life through",
+   "countries": [
+    "ca"
+   ],
+   "regions": [
+    "north_america"
+   ],
+   "work_mode": "remote",
+   "skills": [
+    "analytics",
+    "api",
+    "aws",
+    "cad",
+    "distributed-systems",
+    "kotlin",
+    "kubernetes",
+    "mysql",
+    "python",
+    "react",
+    "vue"
+   ],
+   "cities": [
+    "Alberta",
+    "British Columbia",
+    "Manitoba",
+    "New Brunswick",
+    "Newfoundland and Labrador",
+    "Nova Scotia",
+    "Ontario",
+    "Prince Edward Island",
+    "Saskatchewan"
+   ],
+   "metros": [],
+   "is_tech": "tech",
+   "auto_apply_available": true,
+   "posted_at": "2026-10-30T21:15:12Z",
+   "created_at": "2026-10-30T21:15:26Z",
+   "updated_at": "2026-10-30T23:10:09Z",
+   "last_seen_at": "2026-10-30T23:10:09Z",
+   "closed_at": null,
+   "enrichment": {
+    "salary_min": 133000,
+    "salary_max": 183000,
+    "salary_currency": "CAD",
+    "salary_period": "year",
+    "seniority": "middle",
+    "experience_years_min": 5,
+    "category": "fullstack",
+    "domains": [
+     "fintech"
+    ],
+    "posting_language": "en",
+    "company_type": "product"
+   },
+   "enriched_at": "2026-10-30T21:16:07Z",
+   "enrichment_version": 2,
+   "reality": {
+    "class": "fresh",
+    "age_days": 0,
+    "repost_count": 1,
+    "mass_posting_count": 1,
+    "fake_freshness": false
+   }
+  },
+  {
+   "public_slug": "software-engineer-xcode-cloud-apple-ghktc73l",
+   "source": "apple",
+   "manually_added": false,
+   "external_id": ":200692697",
+   "url": "https://jobs.apple.com/en-us/details/200692697/software-engineer-xcode-cloud?utm_source=freehire.me",
+   "title": "Software Engineer, Xcode Cloud",
+   "company": "Apple",
+   "company_slug": "apple",
+   "location": "Vancouver",
+   "description": "<p>Xcode Cloud is Apple's continuous integration and delivery service. As a Web Engi-\nneer on the team, you will design and build the interfaces that developers around the\nworld rely on to manage builds, run tests in parallel, distribute to testers, and act on\nfeedback as they ship apps for iOS, iPadOS, macOS, watchOS, tvOS, and visionOS.</p>\n<p>You will design and build Xcode Cloud's web experience alongside our Human Inter-\nface designers and server engineers, treating performance, security, privacy, and ac-\ncessibility as core requirements throughout. Your decisions shape the daily workflow\nof developers shipping apps for Apple’s platforms.</p>\n<p>Xcode Cloud serves developers worldwide, and at that scale every detail matters.\nThe role suits someone who combines strong web fundamentals with sharp judg-\nment and a commitment to continuous learning, joining a team that spans new engi-\nneers and Apple veterans.</p>\n<h2>Minimum Qualifications</h2>\n<ul>\n<li>3 years of professional",
+   "countries": [
+    "ca"
+   ],
+   "regions": [
+    "north_america"
+   ],
+   "skills": [
+    "accessibility",
+    "agentic-ai",
+    "ai",
+    "api",
+    "ci-cd",
+    "cloud",
+    "cpp",
+    "css",
+    "html",
+    "ios",
+    "javascript",
+    "macos",
+    "objective-c",
+    "react",
+    "swift",
+    "test-automation",
+    "typescript",
+    "xcode"
+   ],
+   "cities": [
+    "Vancouver"
+   ],
+   "metros": [
+    "Vancouver (CA)"
+   ],
+   "is_tech": "tech",
+   "posted_at": "2026-10-30T20:55:06Z",
+   "created_at": "2026-10-30T21:33:21Z",
+   "updated_at": "2026-10-30T21:34:48Z",
+   "last_seen_at": "2026-10-31T06:32:26Z",
+   "closed_at": null,
+   "enrichment": {
+    "experience_years_min": 3,
+    "category": "software_engineering",
+    "domains": [
+     "devtools"
+    ],
+    "posting_language": "en",
+    "company_type": "product",
+    "company_size": "1000+"
+   },
+   "enriched_at": "2026-10-30T21:34:48Z",
+   "enrichment_version": 2,
+   "reality": {
+    "class": "fresh",
+    "age_days": 0,
+    "repost_count": 1,
+    "mass_posting_count": 1,
+    "fake_freshness": false
+   }
+  },
+  {
+   "public_slug": "developpeur-euse-generaliste-intermediaire-developpeur-euse-intermediaire-de-produits-numeriques-house-of-commons-of-canada-4fim6pm7",
+   "source": "smartrecruiters",
+   "manually_added": false,
+   "external_id": "houseofcommonscanadachambredescommunescanada:744000158732188",
+   "url": "https://jobs.smartrecruiters.com/HouseOfCommonsCanadaChambreDesCommunesCanada/744000158732188-developpeur-euse-generaliste-intermediaire-developpeur-euse-intermediaire-de-produits-numeriques-?utm_source=freehire.me",
+   "title": "Développeur·euse généraliste intermédiaire (Développeur·euse intermédiaire de produits numériques)",
+   "company": "House of Commons of Canada",
+   "company_slug": "house-of-commons-of-canada",
+   "location": "Ottawa, ON, ca",
+   "description": "<p>Les Services numériques et Biens immobiliers (SNBI) de la Chambre des communes cherchent actuellement à doter plusieurs postes de développeur·euse généraliste intermédiaire (développeur·euse intermédiaire de produits numériques).</p><p>Les développeur·euse·s généralistes intermédiaires jouent un rôle clé dans la prestation et l’évolution des produits et services numériques destinés à la communauté parlementaire. Ces personnes sont responsables de la conception, du développement, des essais et de la maintenance d’applications et d’intégrations évolutives, en travaillant à la fois avec des technologies de développement frontal et dorsal afin de fournir des solutions sécurisées, fiables et axées sur les besoins des utilisateur·trice·s.</p><p>Dans ce poste, les développeur·euse·s collaborent étroitement avec les équipes de produits, les architectes, les parties prenantes des secteurs d’activité et les spécialistes des plateformes afin de traduire les besoins opérationnels en solutions",
+   "countries": [
+    "ca"
+   ],
+   "regions": [
+    "north_america"
+   ],
+   "work_mode": "hybrid",
+   "skills": [
+    "agile",
+    "api",
+    "azure",
+    "azure-devops",
+    "cad",
+    "ci-cd",
+    "cmdb",
+    "data-modeling",
+    "devops",
+    "flux",
+    "itsm",
+    "rdbms",
+    "rest",
+    "servicenow"
+   ],
+   "cities": [
+    "Ottawa"
+   ],
+   "metros": [
+    "Ottawa (CA)"
+   ],
+   "is_tech": "tech",
+   "posted_at": "2026-10-30T12:28:54Z",
+   "created_at": "2026-10-31T02:03:19Z",
+   "updated_at": "2026-10-31T02:03:19Z",
+   "last_seen_at": "2026-10-31T07:55:48Z",
+   "closed_at": null,
+   "enrichment": {
+    "category": "software_engineering",
+    "posting_language": "fr"
+   },
+   "enriched_at": null,
+   "enrichment_version": 0,
+   "reality": {
+    "class": "fresh",
+    "age_days": 0,
+    "repost_count": 1,
+    "mass_posting_count": 1,
+    "fake_freshness": false
+   }
+  },
+  {
+   "public_slug": "associate-software-engineer-blackline-dxdbp3zi",
+   "source": "workday",
+   "manually_added": false,
+   "external_id": "blackline.wd108.myworkdayjobs.com/BlackLineCareers:/job/Toronto/Associate-Software-Engineer_002014",
+   "url": "https://blackline.wd108.myworkdayjobs.com/BlackLineCareers/job/Toronto/Associate-Software-Engineer_002014?utm_source=freehire.me",
+   "title": "Associate Software Engineer",
+   "company": "Blackline",
+   "company_slug": "blackline",
+   "location": "Toronto",
+   "description": "<p><b>Make Your Mark: </b></p>As an Associate Software Engineer, you will play a crucial role in delivering high quality releases to our customers by designing, developing, troubleshooting, maintaining, optimizing and scaling BlackLine's cloud-based backend services and driving innovation into our product suite. In this role, you will research, test, benchmark and evaluate new technologies, collaborate with other teams to define and build new features, optimize existing features while writing clean code, and communicating with people at all levels. Your attention to detail, tenacity, and creative problem-solving and thinking ahead will directly impact the company's success, as well as the success of your peers across the organization.<br/><p><b>You'll Get To:</b></p>As an Associate Software Engineer, you will play a crucial role in delivering high quality releases to our customers by designing, developing, troubleshooting, maintaining, optimizing and scaling BlackLine's cloud-based",
+   "countries": [
+    "ca"
+   ],
+   "regions": [
+    "north_america"
+   ],
+   "skills": [],
+   "cities": [
+    "Toronto"
+   ],
+   "metros": [
+    "Toronto (CA)"
+   ],
+   "is_tech": "tech",
+   "posted_at": "2026-10-30T00:00:00Z",
+   "created_at": "2026-10-30T20:26:48Z",
+   "updated_at": "2026-10-30T20:26:48Z",
+   "last_seen_at": "2026-10-30T20:26:48Z",
+   "closed_at": null,
+   "enrichment": {
+    "employment_type": "full_time",
+    "seniority": "junior",
+    "category": "software_engineering",
+    "posting_language": "en"
+   },
+   "enriched_at": null,
+   "enrichment_version": 0,
+   "reality": {
+    "class": "fresh",
+    "age_days": 0,
+    "repost_count": 1,
+    "mass_posting_count": 1,
+    "fake_freshness": false
+   }
+  },
+  {
+   "public_slug": "software-development-engineer-in-test-evisort-ai-workday-5mh3bjfc",
+   "source": "workday",
+   "manually_added": false,
+   "external_id": "workday.wd5.myworkdayjobs.com/Workday:/job/Canada-BC-Vancouver/Software-Development-Engineer-in-Test--Evisort-AI_JR-0111106",
+   "url": "https://workday.wd5.myworkdayjobs.com/Workday/job/Canada-BC-Vancouver/Software-Development-Engineer-in-Test--Evisort-AI_JR-0111106?utm_source=freehire.me",
+   "title": "Software Development Engineer in Test, Evisort AI",
+   "company": "Workday",
+   "company_slug": "workday",
+   "location": "Canada, BC, Vancouver",
+   "description": "<p><b>Your work days are brighter here.</b></p><p></p><p>We’re obsessed with making hard work pay off, for our people, our customers, and the world around us. As a Fortune 500 company and a leading AI platform for managing people, money, and agents, we’re shaping the future of work so teams can reach their potential and focus on what matters most. The minute you join, you’ll feel it. Not just in the products we build, but in how we show up for each other. Our culture is rooted in integrity, empathy, and shared enthusiasm. We’re in this together, tackling big challenges with bold ideas and genuine care. We look for curious minds and courageous collaborators who bring sun-drenched optimism and drive. Whether you're building smarter solutions, supporting customers, or creating a space where everyone belongs, you’ll do meaningful work with Workmates who’ve got your back. In return, we’ll give you the trust to take risks, the tools to grow, the skills to develop and the support of a",
+   "countries": [
+    "ca"
+   ],
+   "regions": [
+    "north_america"
+   ],
+   "skills": [
+    "agile",
+    "ai",
+    "automation",
+    "cad",
+    "ci-cd",
+    "cypress",
+    "git",
+    "github",
+    "gitlab",
+    "javascript",
+    "playwright",
+    "python",
+    "react",
+    "saas",
+    "test-automation",
+    "typescript"
+   ],
+   "cities": [
+    "Vancouver"
+   ],
+   "metros": [
+    "Vancouver (CA)"
+   ],
+   "is_tech": "tech",
+   "posted_at": "2026-10-30T00:00:00Z",
+   "created_at": "2026-10-30T20:41:50Z",
+   "updated_at": "2026-10-30T20:41:50Z",
+   "last_seen_at": "2026-10-30T20:41:50Z",
+   "closed_at": null,
+   "enrichment": {
+    "employment_type": "full_time",
+    "experience_years_min": 3,
+    "category": "software_engineering",
+    "posting_language": "en"
+   },
+   "enriched_at": null,
+   "enrichment_version": 0,
+   "reality": {
+    "class": "fresh",
+    "age_days": 0,
+    "repost_count": 1,
+    "mass_posting_count": 1,
+    "fake_freshness": false
+   }
+  },
+  {
+   "public_slug": "software-engineer-ii-td-bank-kygt7tmm",
+   "source": "workday",
+   "manually_added": false,
+   "external_id": "td.wd3.myworkdayjobs.com/TD_Bank_Careers:/job/Toronto-Ontario/Software-Engineer-II_R_1516370",
+   "url": "https://td.wd3.myworkdayjobs.com/TD_Bank_Careers/job/Toronto-Ontario/Software-Engineer-II_R_1516370?utm_source=freehire.me",
+   "title": "Software Engineer II",
+   "company": "TD Bank",
+   "company_slug": "td-bank",
+   "location": "Toronto, Ontario",
+   "description": "<p><b>Work Location:</b></p>Toronto, Ontario, Canada<p></p><p><b>Hours:</b></p>37.5<p></p><p><b>Line of Business:</b></p>Technology Solutions<p></p><p><b><span>Pay Details:</span></b></p>$81,600 - $115,200 CAD<p></p><p>TD is committed to providing fair and equitable compensation opportunities to all colleagues. Growth opportunities and skill development are defining features of the colleague experience at TD. Our compensation policies and practices have been designed to allow colleagues to progress through the salary range over time as they progress in their role. The base pay actually offered may vary based upon the candidate's skills and experience, job-related knowledge, geographic location, and other specific business and organizational needs.</p><p></p><p>As a candidate, you are encouraged to ask compensation related questions and have an open dialogue with your recruiter who can provide you more specific details for this role.</p><p></p><p><b>Job Description:</b></p><p>We are",
+   "countries": [
+    "ca"
+   ],
+   "regions": [
+    "north_america"
+   ],
+   "skills": [
+    "accessibility",
+    "agile",
+    "ai",
+    "angular",
+    "api",
+    "api-design",
+    "automation",
+    "aws",
+    "azure",
+    "bootstrap",
+    "cad",
+    "ci-cd",
+    "cloud",
+    "confluence",
+    "css",
+    "eclipse",
+    "github",
+    "github-copilot",
+    "hibernate",
+    "html",
+    "intellij",
+    "j2ee",
+    "java",
+    "javascript",
+    "jenkins",
+    "jira",
+    "linux",
+    "maven",
+    "oauth",
+    "openid",
+    "oracle",
+    "performance-management",
+    "proof-of-concept",
+    "prototyping",
+    "rdbms",
+    "redis",
+    "rest",
+    "root-cause-analysis",
+    "scrum",
+    "snyk",
+    "sonarqube",
+    "spring",
+    "sql",
+    "visual-studio",
+    "vulnerability-scanning",
+    "wcag"
+   ],
+   "cities": [
+    "Toronto"
+   ],
+   "metros": [
+    "Toronto (CA)"
+   ],
+   "is_tech": "tech",
+   "posted_at": "2026-10-30T00:00:00Z",
+   "created_at": "2026-10-30T20:42:55Z",
+   "updated_at": "2026-10-30T20:42:55Z",
+   "last_seen_at": "2026-10-30T20:42:55Z",
+   "closed_at": null,
+   "enrichment": {
+    "employment_type": "full_time",
+    "seniority": "middle",
+    "experience_years_min": 2,
+    "category": "software_engineering",
+    "posting_language": "en"
+   },
+   "enriched_at": null,
+   "enrichment_version": 0,
+   "reality": {
+    "class": "stale",
+    "age_days": 0,
+    "repost_count": 1,
+    "mass_posting_count": 1,
+    "fake_freshness": false
+   }
+  },
+  {
+   "public_slug": "full-stack-ai-developer-intern-revvity-u7ifwngj",
+   "source": "workday",
+   "manually_added": false,
+   "external_id": "revvity.wd103.myworkdayjobs.com/External:/job/CAD-Remote--ON/Full-stack-AI-Developer-Intern_JR-045793",
+   "url": "https://revvity.wd103.myworkdayjobs.com/External/job/CAD-Remote--ON/Full-stack-AI-Developer-Intern_JR-045793?utm_source=freehire.me",
+   "title": "Full-stack AI Developer Intern",
+   "company": "Revvity",
+   "company_slug": "revvity",
+   "location": "CAD Remote – ON",
+   "description": "<span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><h2><span><span><span><b>Job Title</b></span></span></span></h2></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>Full-stack AI Developer",
+   "countries": [
+    "ca"
+   ],
+   "regions": [
+    "north_america"
+   ],
+   "work_mode": "remote",
+   "skills": [
+    "ai",
+    "cad",
+    "chatgpt",
+    "docker",
+    "generative-ai",
+    "llm",
+    "nextjs",
+    "prompt-engineering",
+    "python"
+   ],
+   "cities": [],
+   "metros": [],
+   "is_tech": "tech",
+   "posted_at": "2026-10-30T00:00:00Z",
+   "created_at": "2026-10-30T20:46:34Z",
+   "updated_at": "2026-10-30T20:46:34Z",
+   "last_seen_at": "2026-10-30T20:46:34Z",
+   "closed_at": null,
+   "enrichment": {
+    "employment_type": "full_time",
+    "seniority": "intern",
+    "category": "fullstack",
+    "posting_language": "en"
+   },
+   "enriched_at": null,
+   "enrichment_version": 0,
+   "reality": {
+    "class": "fresh",
+    "age_days": 0,
+    "repost_count": 4,
+    "mass_posting_count": 4,
+    "fake_freshness": false
+   }
+  },
+  {
+   "public_slug": "full-stack-ai-developer-intern-revvity-d7qlwptl",
+   "source": "workday",
+   "manually_added": false,
+   "external_id": "revvity.wd103.myworkdayjobs.com/External:/job/CAD-Remote--ON/Full-stack-AI-Developer-Intern_JR-045795",
+   "url": "https://revvity.wd103.myworkdayjobs.com/External/job/CAD-Remote--ON/Full-stack-AI-Developer-Intern_JR-045795?utm_source=freehire.me",
+   "title": "Full-stack AI Developer Intern",
+   "company": "Revvity",
+   "company_slug": "revvity",
+   "location": "CAD Remote – ON",
+   "description": "<span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><h2><span><span><span><b>Job Title</b></span></span></span></h2></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>Full-stack AI Developer",
+   "countries": [
+    "ca"
+   ],
+   "regions": [
+    "north_america"
+   ],
+   "work_mode": "remote",
+   "skills": [
+    "ai",
+    "cad",
+    "chatgpt",
+    "docker",
+    "generative-ai",
+    "llm",
+    "nextjs",
+    "prompt-engineering",
+    "python"
+   ],
+   "cities": [],
+   "metros": [],
+   "is_tech": "tech",
+   "posted_at": "2026-10-30T00:00:00Z",
+   "created_at": "2026-10-30T20:46:34Z",
+   "updated_at": "2026-10-30T20:46:34Z",
+   "last_seen_at": "2026-10-30T20:46:34Z",
+   "closed_at": null,
+   "enrichment": {
+    "employment_type": "full_time",
+    "seniority": "intern",
+    "category": "fullstack",
+    "posting_language": "en"
+   },
+   "enriched_at": null,
+   "enrichment_version": 0,
+   "reality": {
+    "class": "fresh",
+    "age_days": 0,
+    "repost_count": 4,
+    "mass_posting_count": 4,
+    "fake_freshness": false
+   }
+  },
+  {
+   "public_slug": "developpeur-se-en-ia-onepoint-hovb3psv",
+   "source": "workday",
+   "manually_added": false,
+   "external_id": "onepoint.wd3.myworkdayjobs.com/WepointCA:/job/Montreal-Canada/Dveloppeur-se--en-IA_JR103632-1",
+   "url": "https://onepoint.wd3.myworkdayjobs.com/WepointCA/job/Montreal-Canada/Dveloppeur-se--en-IA_JR103632-1?utm_source=freehire.me",
+   "title": "Développeur(se) en IA",
+   "company": "onepoint",
+   "company_slug": "onepoint",
+   "location": "Montreal, Canada",
+   "description": "<p><b>Company Description</b></p><p>Wepoint is the architect of major transformations for businesses and public sector organizations.</p><p>We support our clients from strategy through technological implementation, always striving to think beyond the obvious and to act within the framework of Economic, Social, Environmental, and Technological Responsibility (RESET). Our goal is to create new ways of working, new economic models, and smarter environments.</p><p>In nearly 20 years, we have become one of the key players in digital transformation, employing 3,500 people across Europe, Tunisia, North America, and the Asia-Pacific region.</p><p></p><p><b>What We Are Looking For</b></p><p><b>COURAGE – AUTHENTICITY – OPENNESS – COMMITMENT – ELEGANCE</b></p><p></p><p>Do these words resonate with you? They are our company values.</p><p></p><p>At Wepoint, we are looking for committed talents who are ready to share their expertise within open and collaborative teams, and who are not afraid to",
+   "countries": [
+    "ca"
+   ],
+   "regions": [
+    "north_america"
+   ],
+   "work_mode": "remote",
+   "skills": [
+    "ai",
+    "api",
+    "azure",
+    "generative-ai",
+    "llmops",
+    "machine-learning",
+    "microsoft-copilot",
+    "mlops",
+    "openai",
+    "python"
+   ],
+   "cities": [
+    "Montreal"
+   ],
+   "metros": [
+    "Montréal (CA)"
+   ],
+   "is_tech": "tech",
+   "posted_at": "2026-10-30T00:00:00Z",
+   "created_at": "2026-10-30T21:23:23Z",
+   "updated_at": "2026-10-30T21:23:23Z",
+   "last_seen_at": "2026-10-30T21:23:23Z",
+   "closed_at": null,
+   "enrichment": {
+    "employment_type": "full_time",
+    "experience_years_min": 20,
+    "category": "software_engineering",
+    "posting_language": "fr"
+   },
+   "enriched_at": null,
+   "enrichment_version": 0,
+   "reality": {
+    "class": "fresh",
+    "age_days": 0,
+    "repost_count": 1,
+    "mass_posting_count": 1,
+    "fake_freshness": false
+   }
+  },
+  {
+   "public_slug": "software-engineer-noloc-test",
+   "source": "whatjobs-ca",
+   "manually_added": false,
+   "external_id": "noloc:1",
+   "url": "https://en-ca.whatjobs.com/pub_api__cpl__156709148__7103?geoID=3531&utm_campaign=publisher&utm_medium=api&utm_source=freehire.me",
+   "title": "Software Engineer",
+   "company": "PlanIT Search",
+   "company_slug": "planit-search",
+   "location": "",
+   "description": "<p>Only candidates legally eligible to work in Canada without the need for visa sponsorship will be contacted</p>\n<h3>About the Opportunity</h3>\n<p>We’re looking for a hands-on <b>Full Stack Developer</b> with strong experience in native iOS development and backend engineering to build and support modern, cloud-based applications.</p>\n<p>In this role, you’ll work across the full development lifecycle—from designing and building native iOS features to developing backend APIs, integrating services, deploying applications, and supporting production systems. You’ll collaborate with cross-functional teams to deliver secure, scalable, reliable solutions.</p>\n<h3>What You’ll Do</h3>\n<ul>\n<li>Design, develop, and maintain native iOS applications using <b>Swift and SwiftUI</b>.</li>\n<li>Build and maintain backend APIs and services using <b>Node.js, TypeScript, and NestJS</b>.</li>\n<li>Develop and integrate REST APIs, connecting mobile applications with backend services and external",
+   "countries": [],
+   "regions": [],
+   "skills": [
+    "ai",
+    "api",
+    "api-security",
+    "authentication",
+    "azure",
+    "azure-service-bus",
+    "ci-cd",
+    "cloud",
+    "devops",
+    "incident-investigation",
+    "ios",
+    "jwt",
+    "nestjs",
+    "nodejs",
+    "oauth",
+    "openid",
+    "rest",
+    "sql",
+    "swift",
+    "swiftui",
+    "test-automation",
+    "typescript",
+    "version-control"
+   ],
+   "cities": [],
+   "metros": [],
+   "is_tech": "tech",
+   "posted_at": "2026-10-31T11:56:44Z",
+   "created_at": "2026-10-31T11:56:44Z",
+   "updated_at": "2026-10-31T11:57:22Z",
+   "last_seen_at": "2026-10-31T11:56:44Z",
+   "closed_at": null,
+   "enrichment": {
+    "visa_sponsorship": false,
+    "category": "software_engineering",
+    "posting_language": "en",
+    "company_type": "outstaff"
+   },
+   "enriched_at": "2026-10-31T11:57:22Z",
+   "enrichment_version": 2,
+   "reality": {
+    "class": "fresh",
+    "age_days": 0,
+    "repost_count": 1,
+    "mass_posting_count": 1,
+    "fake_freshness": false
+   }
+  }
+ ],
+ "meta": {
+  "limit": 100,
+  "offset": 0,
+  "total": 14
+ }
+}
