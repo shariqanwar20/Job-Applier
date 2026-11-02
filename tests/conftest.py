@@ -3,7 +3,7 @@ import pathlib
 import pytest
 import yaml
 
-from jobapplier.core.filters import Rules
+from jobapplier.core.rules import Rules
 from jobapplier.models import Posting
 
 ROOT = pathlib.Path(__file__).parent.parent

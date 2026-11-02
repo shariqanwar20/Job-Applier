@@ -4,9 +4,6 @@ from dataclasses import dataclass
 
 from jobapplier.models import Posting
 
-_COMPANY_NOISE = set("inc ltd llc corp corporation company co group plc limited sa the".split())
-
-
 def norm(text: str) -> str:
     text = unicodedata.normalize("NFKD", text)
     text = "".join(c for c in text if not unicodedata.combining(c))
@@ -61,8 +58,3 @@ def is_notable(company: str, rules: Rules) -> bool:
 
 def keep(p: Posting, rules: Rules) -> bool:
     return is_target_title(p.title, rules) and (not is_intern(p.title, rules) or is_notable(p.company, rules))
-
-
-def cluster_key(company: str, title: str) -> str:
-    words = [w for w in norm(company).split() if w not in _COMPANY_NOISE]
-    return " ".join(words) + "|" + norm(re.sub(r"\([^)]*\)", " ", title))

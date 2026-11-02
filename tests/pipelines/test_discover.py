@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from tests.conftest import AFFIRM_INDEED, FakeNotion, FakeSource
 
-from jobapplier.core import db
+from jobapplier.core.clusters import connect
 from jobapplier.models import Posting
 from jobapplier.pipelines.discover import run_discover
 from jobapplier.sources import freehire
@@ -22,7 +22,7 @@ def titles(n):
 
 
 def test_run_discover_end_to_end(rules, config):
-    conn, n = db.connect(":memory:"), FakeNotion()
+    conn, n = connect(":memory:"), FakeNotion()
     sources = [
         FakeSource("freehire", (fixture_rows(), None)),
         FakeSource("indeed", ([AFFIRM_INDEED], None)),
@@ -44,7 +44,7 @@ def test_run_discover_end_to_end(rules, config):
 
 
 def test_second_run_creates_nothing(rules, config):
-    conn, n = db.connect(":memory:"), FakeNotion()
+    conn, n = connect(":memory:"), FakeNotion()
     srcs = [FakeSource("freehire", (fixture_rows(), None))]
     first = run_discover(conn, config, rules, srcs, n, NOW)
     again = run_discover(conn, config, rules, srcs, n, NOW)
@@ -55,14 +55,14 @@ def test_second_run_creates_nothing(rules, config):
 def test_freehire_error_sets_alert_and_other_sources_still_push(rules, config):
     n = FakeNotion()
     sources = [FakeSource("freehire", ([], "freehire: HTTP 429")), FakeSource("indeed", ([AFFIRM_INDEED], None))]
-    r = run_discover(db.connect(":memory:"), config, rules, sources, n, NOW)
+    r = run_discover(connect(":memory:"), config, rules, sources, n, NOW)
     assert len(n.pages) == 1 and r["errors"] == ["freehire: HTTP 429"] and r["alert"] is True
 
 
 def test_source_exception_is_recorded_and_alerts(rules, config):
     n = FakeNotion()
     sources = [FakeSource("indeed", exc=RuntimeError("boom")), FakeSource("linkedin", ([], None))]
-    r = run_discover(db.connect(":memory:"), config, rules, sources, n, NOW)
+    r = run_discover(connect(":memory:"), config, rules, sources, n, NOW)
     assert r["errors"] == ["indeed: boom"] and r["alert"] is True and n.description.startswith("Last discover")
 
 
@@ -70,7 +70,7 @@ def test_malformed_posting_is_skipped_not_fatal(rules, config):
     bad = Posting("indeed", "bad-1", "Software Engineer", "Acme", "Toronto, ON", "http://[broken", "2026-10-30")
     n = FakeNotion()
     sources = [FakeSource("indeed", ([bad, AFFIRM_INDEED], None))]
-    r = run_discover(db.connect(":memory:"), config, rules, sources, n, NOW)
+    r = run_discover(connect(":memory:"), config, rules, sources, n, NOW)
     assert len(n.pages) == 1  # the good posting still lands
     assert len(r["errors"]) == 1 and r["errors"][0].startswith("skipped 1 postings: ") and r["alert"] is True
 
@@ -82,11 +82,11 @@ def test_notion_status_error_is_recorded(rules, config):
                 raise self.error("500 boom")
             return super().request(method, path, body)
 
-    r = run_discover(db.connect(":memory:"), config, rules, [FakeSource("indeed", ([AFFIRM_INDEED], None))], StatusFails(), NOW)
+    r = run_discover(connect(":memory:"), config, rules, [FakeSource("indeed", ([AFFIRM_INDEED], None))], StatusFails(), NOW)
     assert r["errors"] == ["notion: 500 boom"] and r["alert"] is True and r["new_rows"] == 1
 
 
 def test_push_errors_join_the_list(rules, config):
     n = FakeNotion(fail_on_create={1})
-    r = run_discover(db.connect(":memory:"), config, rules, [FakeSource("indeed", ([AFFIRM_INDEED], None))], n, NOW)
+    r = run_discover(connect(":memory:"), config, rules, [FakeSource("indeed", ([AFFIRM_INDEED], None))], n, NOW)
     assert r["errors"] == ["notion: J1: 400 validation_error"] and r["alert"] is True and r["new_rows"] == 0

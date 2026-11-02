@@ -1,6 +1,6 @@
 import re
 
-from jobapplier.core.filters import Rules, norm
+from jobapplier.core.rules import Rules, norm
 
 _LEVEL_I = re.compile(r"\b(engineer|developer|sde) (i|1)$")
 # "experience" within 8 words after the count; lookahead so a stray "20 years ago" can't swallow a later match.

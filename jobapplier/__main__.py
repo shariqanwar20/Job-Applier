@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from jobapplier.config import load_config, load_env
-from jobapplier.core import db
-from jobapplier.core.filters import Rules
+from jobapplier.core import clusters
+from jobapplier.core.rules import Rules
 from jobapplier.notion.client import Notion
 from jobapplier.notion.setup import create_database
 from jobapplier.pipelines.discover import run_discover
@@ -87,7 +87,7 @@ def discover() -> int:
             if not got:
                 log.info("another run holds the lock; exiting")
                 return 0
-            conn = db.connect(str(ROOT / "data" / "jobs.db"))
+            conn = clusters.connect(str(ROOT / "data" / "jobs.db"))
             n = Notion(token)
             result = run_discover(conn, cfg, Rules.from_config(cfg), build_sources(cfg), n, datetime.now(timezone.utc))
         log.info("discover done: %s", result)

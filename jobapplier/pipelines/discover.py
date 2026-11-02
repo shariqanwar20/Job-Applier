@@ -1,8 +1,8 @@
 import logging
 from datetime import datetime
 
-from jobapplier.core import dedupe, filters
-from jobapplier.core.filters import Rules
+from jobapplier.core import clusters
+from jobapplier.core.rules import Rules, keep
 from jobapplier.core.identity import posting_identity
 from jobapplier.notion.client import NotionError
 from jobapplier.notion.push import push, set_status
@@ -21,9 +21,9 @@ def run_discover(conn, cfg: dict, rules: Rules, sources: list, n, now: datetime)
             errors.append(err)
         for p in postings:
             try:
-                if filters.keep(p, rules):
+                if keep(p, rules):
                     p.identity = posting_identity(p.url, rules)
-                    dedupe.assign(conn, p, now, cfg["include_reposts"])
+                    clusters.assign(conn, p, now, cfg["include_reposts"])
             except Exception as exc:  # e.g. a malformed URL: skip that posting, keep the run
                 log.warning("skipping %s %s: %s", p.source, p.source_id, exc)
                 skipped, first_skip = skipped + 1, first_skip or exc
@@ -33,8 +33,7 @@ def run_discover(conn, cfg: dict, rules: Rules, sources: list, n, now: datetime)
 
     created, push_errors = push(conn, n, cfg["notion"]["data_source_id"], rules)
     errors += push_errors
-    total = conn.execute("SELECT COUNT(*) FROM clusters").fetchone()[0]
-    text = f"Last discover {now.astimezone():%Y-%m-%d %H:%M} · {created} new · {total} total · errors: {'; '.join(errors) or 'none'}"
+    text = f"Last discover {now.astimezone():%Y-%m-%d %H:%M} · {created} new · {clusters.total(conn)} total · errors: {'; '.join(errors) or 'none'}"
     try:
         set_status(n, cfg["notion"]["database_id"], text)
     except NotionError as exc:

@@ -1,7 +1,7 @@
 import re
 from urllib.parse import parse_qs, urlsplit
 
-from jobapplier.core.filters import Rules
+from jobapplier.core.rules import Rules
 
 _GREENHOUSE_HOST = re.compile(r"(job-)?boards(\.eu)?\.greenhouse\.io")
 _GREENHOUSE_PATH = re.compile(r"/([^/]+)/jobs/([^/]+)")

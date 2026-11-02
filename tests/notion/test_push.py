@@ -3,8 +3,7 @@ from datetime import datetime, timezone
 import requests
 from tests.conftest import FakeNotion, FakeSession, Resp
 
-from jobapplier.core import db
-from jobapplier.core.dedupe import assign
+from jobapplier.core.clusters import assign, connect
 from jobapplier.models import Posting
 from jobapplier.notion.client import Notion
 from jobapplier.notion.push import find_page, page_properties, push, set_status
@@ -46,7 +45,7 @@ def test_set_status_patches_description_cut_to_2000():
 
 
 def seed(rules, count=3):
-    conn = db.connect(":memory:")
+    conn = connect(":memory:")
     for i in range(1, count + 1):
         p = Posting("freehire", f"fh{i}", "Software Engineer", f"Co{i}", "Toronto, ON", f"https://boards.greenhouse.io/co{i}/jobs/{i}")
         assert assign(conn, p, NOW, False) == i

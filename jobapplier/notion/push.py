@@ -1,4 +1,4 @@
-from jobapplier.core import db, dedupe
+from jobapplier.core import clusters
 from jobapplier.notion.client import Notion, NotionError
 
 
@@ -56,9 +56,9 @@ def find_page(n: Notion, ds_id: str, job_id: str) -> str | None:
 
 def push(conn, n: Notion, ds_id: str, rules) -> tuple[int, list[str]]:
     created, errors = 0, []
-    for row in dedupe.pushable(conn):
+    for row in clusters.pushable(conn):
         job_id = f"J{row['id']}"
-        s = dedupe.summarize(db.members(conn, row["id"]), rules, bool(row["repost"]))
+        s = clusters.summarize(clusters.members(conn, row["id"]), rules, bool(row["repost"]))
         try:
             # Look up first: a crash after the create but before the commit must not duplicate the row.
             page_id = find_page(n, ds_id, job_id)
@@ -71,7 +71,7 @@ def push(conn, n: Notion, ds_id: str, rules) -> tuple[int, list[str]]:
         except NotionError as exc:
             errors.append(f"notion: {job_id}: {exc}")
             continue
-        db.mark_pushed(conn, row["id"], page_id, s["link"], s["identity"])
+        clusters.mark_pushed(conn, row["id"], page_id, s["link"], s["identity"])
         conn.commit()
     return created, errors
 
