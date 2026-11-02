@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 from jobapplier.models import Posting
 
+__all__ = ["Rules", "is_intern", "is_notable", "keep", "norm"]
+
 
 def norm(text: str) -> str:
     text = unicodedata.normalize("NFKD", text)
@@ -43,7 +45,7 @@ class Rules:
         )
 
 
-def is_target_title(title: str, rules: Rules) -> bool:
+def _is_target_title(title: str, rules: Rules) -> bool:
     t = norm(title)
     return bool(rules.include.search(t)) and not rules.exclude.search(t)
 
@@ -57,4 +59,6 @@ def is_notable(company: str, rules: Rules) -> bool:
 
 
 def keep(p: Posting, rules: Rules) -> bool:
-    return is_target_title(p.title, rules) and (not is_intern(p.title, rules) or is_notable(p.company, rules))
+    return _is_target_title(p.title, rules) and (
+        not is_intern(p.title, rules) or is_notable(p.company, rules)
+    )

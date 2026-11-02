@@ -7,12 +7,14 @@ import pandas as pd
 from jobapplier.models import Posting
 from jobapplier.sources.base import Source
 
+__all__ = ["Indeed", "LinkedIn"]
+
 
 def _s(v) -> str:
     return "" if pd.isna(v) else str(v)
 
 
-def from_record(site: str, rec: dict) -> Posting:
+def _from_record(site: str, rec: dict) -> Posting:
     return Posting(
         source=site,
         source_id=_s(rec["id"]),
@@ -25,7 +27,7 @@ def from_record(site: str, rec: dict) -> Posting:
     )
 
 
-class JobSpySource(Source):
+class _JobSpySource(Source):
     def __init__(self, cfg: dict, lookback_days: int, scrape=None, sleep=time.sleep):
         self.cfg, self.hours_old = cfg, lookback_days * 24
         self.scrape, self.sleep = scrape or jobspy.scrape_jobs, sleep
@@ -35,7 +37,7 @@ class JobSpySource(Source):
         return {}
 
     def fetch(self) -> tuple[list[Posting], str | None]:
-        """Never raises. A 429 stops the remaining terms; any other failure is reported and the loop continues."""
+        """Never raises. A 429 stops the remaining terms; other failures are reported and the loop goes on."""
         site = self.name
         postings: list[Posting] = []
         error = None
@@ -43,14 +45,20 @@ class JobSpySource(Source):
             if i:
                 self.sleep(random.uniform(*self.cfg["delay_seconds"]))
             try:
-                df = self.scrape(site_name=[site], search_term=term, location=self.cfg["location"],
-                                 results_wanted=self.cfg["results_wanted"], hours_old=self.hours_old, **self.extra())
+                df = self.scrape(
+                    site_name=[site],
+                    search_term=term,
+                    location=self.cfg["location"],
+                    results_wanted=self.cfg["results_wanted"],
+                    hours_old=self.hours_old,
+                    **self.extra(),
+                )
             except Exception as e:
                 if "429" in str(e):
                     return postings, f"{site}: 429"
                 error = f"{site}: {e}"
                 continue
-            postings += [from_record(site, r) for r in df.to_dict("records")]
+            postings += [_from_record(site, r) for r in df.to_dict("records")]
             # JobSpy reports HTTP failures here instead of raising, and still returns the rows it got.
             message = df.attrs.get("errors", {}).get(site)
             if message and "429" in message:
@@ -60,14 +68,14 @@ class JobSpySource(Source):
         return postings, error
 
 
-class LinkedIn(JobSpySource):
+class LinkedIn(_JobSpySource):
     name = "linkedin"
 
     def extra(self) -> dict:
         return {"linkedin_fetch_description": False}  # list only: descriptions cost one request per job
 
 
-class Indeed(JobSpySource):
+class Indeed(_JobSpySource):
     name = "indeed"
 
     def extra(self) -> dict:

@@ -10,8 +10,19 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+    "pytest",
+    "ruff>=0.17.3",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 addopts = "--import-mode=importlib"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = ["docs"]  # the plans there quote code as it was written
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]

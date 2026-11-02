@@ -24,8 +24,13 @@ def rules(config):
 
 
 AFFIRM_INDEED = Posting(
-    "indeed", "in-1", "Software Engineer II, Full Stack", "Affirm", "Toronto, ON",
-    "https://job-boards.greenhouse.io/affirm/jobs/8042399003", "2026-10-30",
+    "indeed",
+    "in-1",
+    "Software Engineer II, Full Stack",
+    "Affirm",
+    "Toronto, ON",
+    "https://job-boards.greenhouse.io/affirm/jobs/8042399003",
+    "2026-10-30",
 )
 
 
@@ -41,7 +46,9 @@ class FakeSource:
 
 def api_error(status, code, message="boom"):
     """An SDK error as notion_client raises it for an HTTP error response."""
-    return APIResponseError(code=code, status=status, message=message, headers=httpx.Headers(), raw_body_text="")
+    return APIResponseError(
+        code=code, status=status, message=message, headers=httpx.Headers(), raw_body_text=""
+    )
 
 
 class FakeNotion:
@@ -51,7 +58,13 @@ class FakeNotion:
     """
 
     def __init__(self, fail_on_create=None):
-        self.rows, self.fail_on_create, self.creates, self.description, self.calls = {}, dict(fail_on_create or {}), 0, None, []
+        self.rows, self.fail_on_create, self.creates, self.description, self.calls = (
+            {},
+            dict(fail_on_create or {}),
+            0,
+            None,
+            [],
+        )
         self.databases = SimpleNamespace(create=self._create_database, update=self._update_database)
         self.data_sources = SimpleNamespace(query=self._query)
         self.pages = SimpleNamespace(create=self._create_page)
@@ -59,7 +72,11 @@ class FakeNotion:
     def _query(self, data_source_id, **kw):
         self.calls.append(("data_sources.query", {"data_source_id": data_source_id, **kw}))
         want = kw["filter"]["rich_text"]["equals"]
-        hits = [{"id": pid} for pid, p in self.rows.items() if p["Job ID"]["rich_text"][0]["text"]["content"] == want]
+        hits = [
+            {"id": pid}
+            for pid, p in self.rows.items()
+            if p["Job ID"]["rich_text"][0]["text"]["content"] == want
+        ]
         return {"results": hits[: kw["page_size"]]}
 
     def _create_page(self, **kw):

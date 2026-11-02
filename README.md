@@ -84,3 +84,10 @@ Output goes to `logs/jobapplier.log` in the repo.
 ```
 uv run pytest
 ```
+
+## Conventions
+
+- PEP 8 naming, checked by ruff: `uv run ruff check` and `uv run ruff format` must pass.
+- A module's `__all__` is its public API: the names other modules import.
+- Every other module-level name starts with `_` and is private to its module.
+- Tests mirror the package folders (`jobapplier/core/rules.py` is tested in `tests/core/test_rules.py`).

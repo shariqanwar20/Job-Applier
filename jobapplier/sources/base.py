@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 
 from jobapplier.models import Posting
 
+__all__ = ["Source"]
+
 
 class Source(ABC):
     name: str

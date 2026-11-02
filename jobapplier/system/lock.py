@@ -2,6 +2,8 @@ import fcntl
 import os
 from contextlib import contextmanager
 
+__all__ = ["locked"]
+
 
 @contextmanager
 def locked(path: str):

@@ -43,10 +43,12 @@ def test_retry_is_mounted_for_get_on_rate_limits_and_server_errors():
 
 
 def test_non_2xx_and_transport_errors_raise_api_error_without_the_url():
-    api = ApiClient("https://x", session=FakeSession([Resp(503), requests.ConnectionError("https://x/secret boom")]))
-    with pytest.raises(ApiError, match="^HTTP 503$"):
+    api = ApiClient(
+        "https://x", session=FakeSession([Resp(503), requests.ConnectionError("https://x/secret boom")])
+    )
+    with pytest.raises(ApiError, match=r"^HTTP 503$"):
         api.get_json("/a")
-    with pytest.raises(ApiError, match="^network: ConnectionError$"):
+    with pytest.raises(ApiError, match=r"^network: ConnectionError$"):
         api.get_json("/a")
 
 

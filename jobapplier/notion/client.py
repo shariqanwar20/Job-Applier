@@ -4,6 +4,8 @@ import httpx
 from notion_client import Client, RetryOptions
 from notion_client.errors import HTTPResponseError, NotionClientErrorBase
 
+__all__ = ["NotionError", "call", "make_client"]
+
 
 class NotionError(Exception):
     pass

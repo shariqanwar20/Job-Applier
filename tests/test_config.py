@@ -28,7 +28,13 @@ def test_load_env_parses_lines_and_keeps_existing_variables(tmp_path, monkeypatc
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("A", "keep")
     load_env(env)
-    assert (os.environ["A"], os.environ["B"], os.environ["C"], os.environ["D"], os.environ["E"]) == ("keep", "two", "three", "\"x'", "a=b")
+    assert (os.environ["A"], os.environ["B"], os.environ["C"], os.environ["D"], os.environ["E"]) == (
+        "keep",
+        "two",
+        "three",
+        "\"x'",
+        "a=b",
+    )
 
 
 def test_load_env_missing_file_is_a_no_op(tmp_path):

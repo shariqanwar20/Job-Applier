@@ -14,14 +14,25 @@ class ApiError(Exception):
 class ApiClient:
     """A JSON API over one requests.Session: retries, an optional pause between calls, one error type."""
 
-    def __init__(self, base_url: str, headers: dict | None = None, timeout: float = 30, min_interval: float = 0,
-                 session: requests.Session | None = None):
+    def __init__(
+        self,
+        base_url: str,
+        headers: dict | None = None,
+        timeout: float = 30,
+        min_interval: float = 0,
+        session: requests.Session | None = None,
+    ):
         self.base_url, self.timeout, self.min_interval = base_url, timeout, min_interval
         self.session = session or requests.Session()
         self.session.headers.update(headers or {})
         # raise_on_status=False: after the last retry the response comes back, so the error names its status.
-        retry = Retry(total=3, status_forcelist={429, 500, 502, 503, 504}, allowed_methods={"GET"},
-                      respect_retry_after_header=True, raise_on_status=False)
+        retry = Retry(
+            total=3,
+            status_forcelist={429, 500, 502, 503, 504},
+            allowed_methods={"GET"},
+            respect_retry_after_header=True,
+            raise_on_status=False,
+        )
         self.session.mount("https://", HTTPAdapter(max_retries=retry))
         self._last_call = float("-inf")
 

@@ -1,20 +1,23 @@
 import json
 import pathlib
-from datetime import datetime, timezone
-
-from tests.conftest import AFFIRM_INDEED, FakeNotion, FakeSource, api_error
+from datetime import UTC, datetime
+from types import SimpleNamespace
 
 from jobapplier.core.clusters import connect
 from jobapplier.models import Posting
 from jobapplier.pipelines.discover import run_discover
-from jobapplier.sources import freehire
+from jobapplier.sources.freehire import FreeHire
+from tests.conftest import AFFIRM_INDEED, FakeNotion, FakeSource, api_error
 
 PAGE = json.loads((pathlib.Path(__file__).parents[1] / "fixtures/freehire_page.json").read_text())
-NOW = datetime(2026, 10, 31, 12, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 31, 12, tzinfo=UTC)
 
 
 def fixture_rows():
-    return [freehire.parse(r) for r in PAGE["data"]]
+    api = SimpleNamespace(get_json=lambda path, params: PAGE)
+    rows, err = FreeHire({"countries": [], "regions": [], "categories": []}, 3, api=api).fetch()
+    assert err is None
+    return rows
 
 
 def titles(n):
@@ -29,7 +32,9 @@ def test_run_discover_end_to_end(rules, config):
         FakeSource("linkedin", ([], "linkedin: 429")),
     ]
     r = run_discover(conn, config, rules, sources, n, NOW)
-    assert r["errors"] == ["linkedin: 429"] and r["alert"] is False  # a lone LinkedIn 429 is expected, status only
+    assert (
+        r["errors"] == ["linkedin: 429"] and r["alert"] is False
+    )  # a lone LinkedIn 429 is expected, status only
     ids = [p["Job ID"]["rich_text"][0]["text"]["content"] for p in n.rows.values()]
     assert len(ids) == len(set(ids)) and r["new_rows"] == len(n.rows)
     t = titles(n)
@@ -38,7 +43,9 @@ def test_run_discover_end_to_end(rules, config):
     assert "Sr. Software Engineer" not in t and "Engineering Manager, Conversational AI" not in t
     assert "Full-stack AI Developer Intern" not in t  # both Revvity rows: intern at a non-notable company
     assert "Software Engineer Intern, Pipeline Infrastructure" in t  # Disney: notable intern
-    assert "PlanIT Search" not in [p["Company"]["rich_text"][0]["text"]["content"] for p in n.rows.values()]  # no location
+    assert "PlanIT Search" not in [
+        p["Company"]["rich_text"][0]["text"]["content"] for p in n.rows.values()
+    ]  # no location
     assert n.description.startswith("Last discover")
     assert f"{r['new_rows']} new" in n.description and "errors: linkedin: 429" in n.description
 
@@ -54,7 +61,10 @@ def test_second_run_creates_nothing(rules, config):
 
 def test_freehire_error_sets_alert_and_other_sources_still_push(rules, config):
     n = FakeNotion()
-    sources = [FakeSource("freehire", ([], "freehire: HTTP 429")), FakeSource("indeed", ([AFFIRM_INDEED], None))]
+    sources = [
+        FakeSource("freehire", ([], "freehire: HTTP 429")),
+        FakeSource("indeed", ([AFFIRM_INDEED], None)),
+    ]
     r = run_discover(connect(":memory:"), config, rules, sources, n, NOW)
     assert len(n.rows) == 1 and r["errors"] == ["freehire: HTTP 429"] and r["alert"] is True
 
@@ -63,11 +73,15 @@ def test_source_exception_is_recorded_and_alerts(rules, config):
     n = FakeNotion()
     sources = [FakeSource("indeed", exc=RuntimeError("boom")), FakeSource("linkedin", ([], None))]
     r = run_discover(connect(":memory:"), config, rules, sources, n, NOW)
-    assert r["errors"] == ["indeed: boom"] and r["alert"] is True and n.description.startswith("Last discover")
+    assert (
+        r["errors"] == ["indeed: boom"] and r["alert"] is True and n.description.startswith("Last discover")
+    )
 
 
 def test_malformed_posting_is_skipped_not_fatal(rules, config):
-    bad = Posting("indeed", "bad-1", "Software Engineer", "Acme", "Toronto, ON", "http://[broken", "2026-10-30")
+    bad = Posting(
+        "indeed", "bad-1", "Software Engineer", "Acme", "Toronto, ON", "http://[broken", "2026-10-30"
+    )
     n = FakeNotion()
     sources = [FakeSource("indeed", ([bad, AFFIRM_INDEED], None))]
     r = run_discover(connect(":memory:"), config, rules, sources, n, NOW)
@@ -78,11 +92,15 @@ def test_malformed_posting_is_skipped_not_fatal(rules, config):
 def test_notion_status_error_is_recorded(rules, config):
     n = FakeNotion()
     n.databases.update = lambda **kw: (_ for _ in ()).throw(api_error(500, "internal_server_error"))
-    r = run_discover(connect(":memory:"), config, rules, [FakeSource("indeed", ([AFFIRM_INDEED], None))], n, NOW)
+    r = run_discover(
+        connect(":memory:"), config, rules, [FakeSource("indeed", ([AFFIRM_INDEED], None))], n, NOW
+    )
     assert r["errors"] == ["notion: 500 boom"] and r["alert"] is True and r["new_rows"] == 1
 
 
 def test_push_errors_join_the_list(rules, config):
     n = FakeNotion(fail_on_create={1: api_error(400, "validation_error")})
-    r = run_discover(connect(":memory:"), config, rules, [FakeSource("indeed", ([AFFIRM_INDEED], None))], n, NOW)
+    r = run_discover(
+        connect(":memory:"), config, rules, [FakeSource("indeed", ([AFFIRM_INDEED], None))], n, NOW
+    )
     assert r["errors"] == ["notion: J1: 400 boom"] and r["alert"] is True and r["new_rows"] == 0

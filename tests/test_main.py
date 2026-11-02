@@ -2,18 +2,18 @@ import shutil
 from pathlib import Path
 
 import pytest
-from tests.conftest import AFFIRM_INDEED, FakeNotion, FakeSource
 
 from jobapplier import __main__ as app
 from jobapplier.system import launchd
 from jobapplier.system.lock import locked
+from tests.conftest import AFFIRM_INDEED, FakeNotion, FakeSource
 
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
-    """A fake repo root with the shipped defaults, a token in the environment, and notify recorded instead of shown."""
-    shutil.copy(app.ROOT / "config.default.yaml", tmp_path / "config.default.yaml")
-    monkeypatch.setattr(app, "ROOT", tmp_path)
+    """A fake repo root with the shipped defaults, a token in the environment, and notify recorded."""
+    shutil.copy(app._ROOT / "config.default.yaml", tmp_path / "config.default.yaml")
+    monkeypatch.setattr(app, "_ROOT", tmp_path)
     monkeypatch.setenv("NOTION_TOKEN", "tok")
     notes = []
     monkeypatch.setattr(app, "notify", lambda title, message: notes.append((title, message)))
@@ -25,11 +25,11 @@ def set_ids(root):
 
 
 def test_root_is_the_repo_root():
-    assert (app.ROOT / "config.default.yaml").exists()
+    assert (app._ROOT / "config.default.yaml").exists()
 
 
 def test_main_without_notion_ids_notifies_and_fails(home):
-    root, notes = home
+    _, notes = home
     assert app.main(["discover"]) == 1
     assert len(notes) == 1 and "python -m jobapplier notion-setup" in notes[0][1]
 
@@ -49,7 +49,14 @@ def test_main_runs_and_notifies_on_alert(home, monkeypatch):
     set_ids(root)
     n = FakeNotion()
     monkeypatch.setattr(app, "make_client", lambda token: n)
-    monkeypatch.setattr(app, "build_sources", lambda cfg: [FakeSource("indeed", ([AFFIRM_INDEED], None)), FakeSource("freehire", ([], "freehire: HTTP 500"))])
+    monkeypatch.setattr(
+        app,
+        "build_sources",
+        lambda cfg: [
+            FakeSource("indeed", ([AFFIRM_INDEED], None)),
+            FakeSource("freehire", ([], "freehire: HTTP 500")),
+        ],
+    )
     assert app.main(["discover"]) == 0
     assert len(n.rows) == 1 and (root / "data" / "jobs.db").exists()
     assert len(notes) == 1 and "freehire: HTTP 500" in notes[0][1]
@@ -64,7 +71,7 @@ def test_main_unexpected_exception_notifies_and_returns_one(home, monkeypatch):
 
 
 def test_main_reads_token_from_env_file(home, monkeypatch):
-    root, notes = home
+    root, _ = home
     set_ids(root)
     monkeypatch.delenv("NOTION_TOKEN")
     (root / ".env").write_text("NOTION_TOKEN=from-file\n")
@@ -92,9 +99,11 @@ def test_notion_setup_without_token_prints_message_and_fails(home, monkeypatch, 
 def test_install_agent_dispatches_to_launchd(monkeypatch, capsys):
     calls = []
     monkeypatch.setattr(app.shutil, "which", lambda name: "/opt/bin/uv")
-    monkeypatch.setattr(launchd, "install", lambda repo, uv: calls.append((repo, uv)) or Path("/p/agent.plist"))
+    monkeypatch.setattr(
+        launchd, "install", lambda repo, uv: calls.append((repo, uv)) or Path("/p/agent.plist")
+    )
     assert app.main(["install-agent"]) == 0
-    assert calls == [(app.ROOT, "/opt/bin/uv")]
+    assert calls == [(app._ROOT, "/opt/bin/uv")]
     assert "/p/agent.plist" in capsys.readouterr().out
 
 

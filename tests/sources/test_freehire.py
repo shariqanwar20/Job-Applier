@@ -2,7 +2,6 @@ import json
 import pathlib
 
 from jobapplier.http import ApiError
-from jobapplier.sources import freehire
 from jobapplier.sources.freehire import FreeHire
 
 PAGE = json.loads((pathlib.Path(__file__).parents[1] / "fixtures/freehire_page.json").read_text())
@@ -26,19 +25,30 @@ def fetch(api, config):
     return FreeHire(config["sources"]["freehire"], config["lookback_days"], api=api).fetch()
 
 
-def test_parse_greenhouse_row():
+def one_row(row, config):
+    rows, err = fetch(FakeApi([{"data": [row], "meta": {"total": 1}}]), config)
+    assert err is None and len(rows) == 1
+    return rows[0]
+
+
+def test_parse_greenhouse_row(config):
     row = next(r for r in PAGE["data"] if r["source"] == "greenhouse")
-    p = freehire.parse(row)
-    assert (p.source, p.company, p.posted, p.no_location) == ("freehire", "Affirm", row["created_at"][:10], False)
+    p = one_row(row, config)
+    assert (p.source, p.company, p.posted, p.no_location) == (
+        "freehire",
+        "Affirm",
+        row["created_at"][:10],
+        False,
+    )
     assert p.url.startswith("https://job-boards.greenhouse.io/affirm/jobs/8042399003")
 
 
-def test_parse_no_location_row():
-    assert freehire.parse(PAGE["data"][-1]).no_location is True
+def test_parse_no_location_row(config):
+    assert one_row(PAGE["data"][-1], config).no_location is True
 
 
-def test_parse_null_enrichment():
-    p = freehire.parse({**PAGE["data"][0], "enrichment": None, "description": None})
+def test_parse_null_enrichment(config):
+    p = one_row({**PAGE["data"][0], "enrichment": None, "description": None}, config)
     assert (p.seniority, p.description) == ("", "")
 
 
@@ -48,14 +58,25 @@ def test_fetch_sends_one_query_and_parses_all_rows(config):
     assert err is None and len(rows) == 14
     params = s.calls[0]["params"]
     assert ("regions", "none") in params and ("countries", "ca") in params
-    assert {v for k, v in params if k == "category"} == {"software_engineering", "fullstack", "backend", "frontend", "ai_engineering", "mobile"}
+    assert {v for k, v in params if k == "category"} == {
+        "software_engineering",
+        "fullstack",
+        "backend",
+        "frontend",
+        "ai_engineering",
+        "mobile",
+    }
     assert ("open_within_days", 3) in params and ("description_format", "text") in params
     assert s.calls[0]["path"] == "/agent/jobs/search"
 
 
 def test_fetch_pages_until_total_reached(config):
-    page = lambda total: {"data": PAGE["data"][:1] * 100, "meta": {"total": total}}
-    s = FakeApi([page(150), {"data": PAGE["data"][:1] * 50, "meta": {"total": 150}}])
+    s = FakeApi(
+        [
+            {"data": PAGE["data"][:1] * 100, "meta": {"total": 150}},
+            {"data": PAGE["data"][:1] * 50, "meta": {"total": 150}},
+        ]
+    )
     rows, err = fetch(s, config)
     assert err is None and len(rows) == 150
     assert [dict(c["params"])["offset"] for c in s.calls] == [0, 100]
