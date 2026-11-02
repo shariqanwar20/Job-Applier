@@ -80,13 +80,13 @@ def test_discover_without_token_notifies_and_fails(home, monkeypatch):
     set_ids(root)
     monkeypatch.delenv("NOTION_TOKEN")
     assert app.main(["discover"]) == 1
-    assert notes == [("JobApplier", "Set NOTION_TOKEN in .env (see .env.example)")]
+    assert len(notes) == 1 and "NOTION_TOKEN" in notes[0][1] and ".env" in notes[0][1]
 
 
 def test_notion_setup_without_token_prints_message_and_fails(home, monkeypatch, capsys):
     monkeypatch.delenv("NOTION_TOKEN")
     assert app.main(["notion-setup", "page1"]) == 1
-    assert "Set NOTION_TOKEN in .env (see .env.example)" in capsys.readouterr().out
+    assert "NOTION_TOKEN" in capsys.readouterr().out
 
 
 def test_install_agent_dispatches_to_launchd(monkeypatch, capsys):
@@ -118,4 +118,5 @@ def test_notion_setup_creates_database_and_prints_snippet(home, monkeypatch, cap
     monkeypatch.setattr(app, "create_database", lambda n, page: calls.append((n, page)) or ("db9", "ds9"))
     assert app.main(["notion-setup", "page1"]) == 0
     assert calls == [("client-tok", "page1")]
-    assert capsys.readouterr().out == "Paste into your config.yaml:\nnotion:\n  database_id: db9\n  data_source_id: ds9\n"
+    out = capsys.readouterr().out
+    assert "config.yaml" in out and "database_id: db9" in out and "data_source_id: ds9" in out

@@ -17,7 +17,7 @@ CREATE INDEX IF NOT EXISTS clusters_key ON clusters(key);
 CREATE TABLE IF NOT EXISTS postings (
   source TEXT NOT NULL, source_id TEXT NOT NULL, cluster_id INTEGER NOT NULL REFERENCES clusters(id),
   identity TEXT, title TEXT, company TEXT, location TEXT, url TEXT, posted TEXT, description TEXT,
-  language TEXT, seniority TEXT, no_location INTEGER NOT NULL, first_seen TEXT NOT NULL,
+  seniority TEXT, no_location INTEGER NOT NULL, first_seen TEXT NOT NULL,
   PRIMARY KEY (source, source_id));
 CREATE INDEX IF NOT EXISTS postings_identity ON postings(identity);
 """
@@ -62,9 +62,9 @@ def assign(conn: sqlite3.Connection, p: Posting, now: datetime, include_reposts:
         cid = conn.execute("INSERT INTO clusters (key, first_seen, repost) VALUES (?, ?, ?)", (key, stamp, repost)).lastrowid
     conn.execute(
         "INSERT INTO postings (source, source_id, cluster_id, identity, title, company, location, url, posted,"
-        " description, language, seniority, no_location, first_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " description, seniority, no_location, first_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (p.source, p.source_id, cid, p.identity, p.title, p.company, p.location, p.url, p.posted,
-         p.description, p.language, p.seniority, int(p.no_location), stamp),
+         p.description, p.seniority, int(p.no_location), stamp),
     )
     return cid
 
@@ -78,7 +78,7 @@ def pushable(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 def members(conn: sqlite3.Connection, cluster_id: int) -> list[Posting]:
     rows = conn.execute(
-        "SELECT source, source_id, title, company, location, url, posted, description, language, seniority,"
+        "SELECT source, source_id, title, company, location, url, posted, description, seniority,"
         " no_location, identity FROM postings WHERE cluster_id = ? ORDER BY rowid",
         (cluster_id,),
     )

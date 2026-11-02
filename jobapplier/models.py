@@ -11,7 +11,6 @@ class Posting:
     url: str
     posted: str = ""  # YYYY-MM-DD
     description: str = ""
-    language: str = ""
     seniority: str = ""
     no_location: bool = False
     identity: str | None = None

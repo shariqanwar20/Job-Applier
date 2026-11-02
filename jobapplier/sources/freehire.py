@@ -19,7 +19,6 @@ def parse(row: dict) -> Posting:
         url=row["url"],
         posted=row["created_at"][:10],
         description=row["description"] or "",
-        language=enrichment.get("posting_language") or "",
         seniority=enrichment.get("seniority") or "",
         no_location=not row["countries"],
     )
@@ -29,19 +28,17 @@ class FreeHire(Source):
     name = "freehire"
 
     def __init__(self, cfg: dict, lookback_days: int, session=None):
-        self.cfg, self.lookback_days = cfg, lookback_days
         self.session = session or requests.Session()
+        self.params = [("countries", c) for c in cfg["countries"]] + [("regions", r) for r in cfg["regions"]]
+        self.params += [("category", c) for c in cfg["categories"]]
+        self.params += [("open_within_days", lookback_days), ("description_format", "text"), ("limit", PAGE)]
 
     def fetch(self) -> tuple[list[Posting], str | None]:
-        """Never raises: returns the postings gathered so far plus an error string."""
         postings: list[Posting] = []
         offset = 0
         while True:
-            params = [("countries", c) for c in self.cfg["countries"]] + [("regions", r) for r in self.cfg["regions"]]
-            params += [("category", c) for c in self.cfg["categories"]]
-            params += [("open_within_days", self.lookback_days), ("description_format", "text"), ("limit", PAGE), ("offset", offset)]
             try:
-                resp = self.session.get(URL, params=params, timeout=30)
+                resp = self.session.get(URL, params=[*self.params, ("offset", offset)], timeout=30)
                 if resp.status_code != 200:
                     return postings, f"freehire: HTTP {resp.status_code}"
                 body = resp.json()

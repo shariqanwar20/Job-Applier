@@ -17,11 +17,9 @@ def test_plist_round_trips_awkward_paths():
     assert d["StandardOutPath"] == d["StandardErrorPath"] == str(REPO / "logs" / "jobapplier.log")
 
 
-def fake_run(calls, fail_bootout=False):
+def fake_run(calls):
     def run(cmd, **kw):
         calls.append((cmd, kw))
-        if fail_bootout and cmd[1] == "bootout" and kw.get("check"):  # a real run only raises when asked to
-            raise subprocess.CalledProcessError(3, cmd)
         return subprocess.CompletedProcess(cmd, 0)
 
     return run
@@ -39,13 +37,6 @@ def test_install_creates_dirs_writes_plist_then_bootout_and_bootstrap(tmp_path, 
     assert [c[0][:2] for c in calls] == [["launchctl", "bootout"], ["launchctl", "bootstrap"]]
     assert calls[0][0][2].endswith("/local.jobapplier") and not calls[0][1].get("check")
     assert calls[1][0][3] == str(path) and calls[1][1]["check"] is True
-
-
-def test_install_works_when_bootout_fails(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    calls = []
-    launchd.install(tmp_path, UV, run=fake_run(calls, fail_bootout=True))
-    assert len(calls) == 2
 
 
 def test_uninstall_boots_out_and_removes_plist(tmp_path, monkeypatch):

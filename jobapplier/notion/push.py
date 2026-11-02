@@ -6,12 +6,13 @@ def _options(*names: str) -> dict:
     return {"select": {"options": [{"name": n} for n in names]}}
 
 
+RANKS = ("1 New grad", "2 Under 3 yrs", "3 Other")
 SCHEMA = {
     "Title": {"title": {}},
     "Company": {"rich_text": {}},
     "City": {"rich_text": {}},
     "Alt locations": {"rich_text": {}},
-    "Rank": _options("1 New grad", "2 Under 3 yrs", "3 Other"),
+    "Rank": _options(*RANKS),
     "ATS": _options("Greenhouse", "Lever", "Ashby", "Workday", "Other"),
     "First seen": {"date": {}},
     "Posted": {"date": {}},
@@ -23,18 +24,26 @@ SCHEMA = {
 }
 
 
+def create_database(n: Notion, parent_page_id: str) -> tuple[str, str]:
+    r = n.request("POST", "/v1/databases", {
+        "parent": {"type": "page_id", "page_id": parent_page_id},
+        "title": [{"text": {"content": "Jobs"}}],
+        "initial_data_source": {"properties": SCHEMA},
+    })
+    return r["id"], r["data_sources"][0]["id"]
+
+
 def _text(value: str) -> list[dict]:
     return [{"text": {"content": value[:2000]}}] if value else []  # Notion rejects longer rich text
 
 
 def page_properties(job_id: str, s: dict, first_seen: str) -> dict:
-    rank = next(o["name"] for o in SCHEMA["Rank"]["select"]["options"] if o["name"].startswith(f"{s['rank']} "))
     props = {
         "Title": {"title": _text(s["title"])},
         "Company": {"rich_text": _text(s["company"])},
         "City": {"rich_text": _text(s["city"])},
         "Alt locations": {"rich_text": _text(s["alt_locations"])},
-        "Rank": {"select": {"name": rank}},
+        "Rank": {"select": {"name": RANKS[s["rank"] - 1]}},
         "ATS": {"select": {"name": s["ats"]}},
         "First seen": {"date": {"start": first_seen}},
         "Flags": {"multi_select": [{"name": f} for f in s["flags"]]},

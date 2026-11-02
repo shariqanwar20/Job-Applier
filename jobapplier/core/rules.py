@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from jobapplier.models import Posting
 
+
 def norm(text: str) -> str:
     text = unicodedata.normalize("NFKD", text)
     text = "".join(c for c in text if not unicodedata.combining(c))
@@ -13,7 +14,7 @@ def norm(text: str) -> str:
 def _words(words: list[str]) -> re.Pattern:
     if not words:  # an empty alternation would match every title
         return re.compile(r"(?!)")
-    return re.compile(r"\b(" + "|".join(re.escape(w) for w in words) + r")\b")
+    return re.compile(r"\b(" + "|".join(re.escape(norm(w)) for w in words) + r")\b")
 
 
 @dataclass(frozen=True)
@@ -22,8 +23,8 @@ class Rules:
     exclude: re.Pattern
     intern: re.Pattern
     junior: re.Pattern
-    cities: tuple[tuple[str, ...], ...]
-    notable: tuple[str, ...]
+    cities: tuple[re.Pattern, ...]
+    notable: re.Pattern
     aggregators: tuple[str, ...]
     source_order: tuple[str, ...]
 
@@ -35,8 +36,8 @@ class Rules:
             exclude=_words(r["exclude"]),
             intern=_words(r["intern"]),
             junior=_words(r["rank1_title"]),
-            cities=tuple(tuple(tier) for tier in r["cities"]),
-            notable=tuple(r["notable_companies"]),
+            cities=tuple(_words(tier) for tier in r["cities"]),
+            notable=_words(r["notable_companies"]),
             aggregators=tuple(r["aggregator_hosts"]),
             source_order=tuple(cfg["sources"]),
         )
@@ -52,8 +53,7 @@ def is_intern(title: str, rules: Rules) -> bool:
 
 
 def is_notable(company: str, rules: Rules) -> bool:
-    c = f" {norm(company)} "
-    return any(f" {norm(n)} " in c for n in rules.notable)
+    return bool(rules.notable.search(norm(company)))
 
 
 def keep(p: Posting, rules: Rules) -> bool:

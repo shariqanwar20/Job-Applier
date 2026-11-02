@@ -12,7 +12,7 @@ from jobapplier.config import load_config, load_env
 from jobapplier.core import clusters
 from jobapplier.core.rules import Rules
 from jobapplier.notion.client import Notion
-from jobapplier.notion.setup import create_database
+from jobapplier.notion.push import create_database
 from jobapplier.pipelines.discover import run_discover
 from jobapplier.sources import build_sources
 from jobapplier.system import launchd
@@ -22,6 +22,7 @@ from jobapplier.system.notify import notify
 ROOT = Path(__file__).resolve().parents[1]
 log = logging.getLogger("jobapplier")
 NO_TOKEN = "Set NOTION_TOKEN in .env (see .env.example)"
+NO_IDS = "Set notion IDs in config.yaml — run: python -m jobapplier notion-setup <page_id>"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -72,15 +73,16 @@ def notion_setup(parent_page_id: str) -> int:
 def discover() -> int:
     try:
         cfg = load_config(ROOT)
-        if not (cfg["notion"]["data_source_id"] and cfg["notion"]["database_id"]):
-            msg = "Set notion IDs in config.yaml — run: python -m jobapplier notion-setup <page_id>"
-            log.error(msg)
-            notify("JobApplier", msg)
-            return 1
         token = os.environ.get("NOTION_TOKEN")
-        if not token:
-            log.error(NO_TOKEN)
-            notify("JobApplier", NO_TOKEN)
+        if not (cfg["notion"]["data_source_id"] and cfg["notion"]["database_id"]):
+            problem = NO_IDS
+        elif not token:
+            problem = NO_TOKEN
+        else:
+            problem = None
+        if problem:
+            log.error(problem)
+            notify("JobApplier", problem)
             return 1
         (ROOT / "data").mkdir(exist_ok=True)
         with locked(str(ROOT / "data" / "run.lock")) as got:

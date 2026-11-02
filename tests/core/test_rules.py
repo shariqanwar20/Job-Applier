@@ -1,4 +1,5 @@
 import pytest
+from jobapplier.core.rank import city_rank
 from jobapplier.core.rules import Rules, norm, is_target_title, is_intern, is_notable, keep
 from jobapplier.models import Posting
 
@@ -37,3 +38,8 @@ def test_shipped_config_gives_source_order(rules):
 def test_empty_lists_match_nothing(config):
     r = Rules.from_config({**config, "rules": {**config["rules"], "exclude": [], "intern": []}})
     assert is_target_title("Senior Software Engineer", r) and not is_intern("Software Engineer Intern", r)
+
+
+def test_config_words_are_normalized(config):
+    r = Rules.from_config({**config, "rules": {**config["rules"], "cities": [["Montréal"]], "include": ["Developer"]}})
+    assert is_target_title("Software Developer", r) and city_rank("Montreal, QC", r) == 0

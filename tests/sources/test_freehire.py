@@ -29,7 +29,7 @@ def fetch(session, config):
 def test_parse_greenhouse_row():
     row = next(r for r in PAGE["data"] if r["source"] == "greenhouse")
     p = freehire.parse(row)
-    assert (p.source, p.company, p.posted, p.language, p.no_location) == ("freehire", "Affirm", row["created_at"][:10], "en", False)
+    assert (p.source, p.company, p.posted, p.no_location) == ("freehire", "Affirm", row["created_at"][:10], False)
     assert p.url.startswith("https://job-boards.greenhouse.io/affirm/jobs/8042399003")
 
 
@@ -39,7 +39,7 @@ def test_parse_no_location_row():
 
 def test_parse_null_enrichment():
     p = freehire.parse({**PAGE["data"][0], "enrichment": None, "description": None})
-    assert (p.language, p.seniority, p.description) == ("", "", "")
+    assert (p.seniority, p.description) == ("", "")
 
 
 def test_fetch_sends_one_query_and_parses_all_rows(config):

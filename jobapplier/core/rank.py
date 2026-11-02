@@ -6,22 +6,19 @@ _LEVEL_I = re.compile(r"\b(engineer|developer|sde) (i|1)$")
 # "experience" within 8 words after the count; lookahead so a stray "20 years ago" can't swallow a later match.
 _YEARS = re.compile(r"\b(\d+)(?: (?:to )?\d+)? (?:years?|yrs?|ans?)\b(?=(?: \w+){0,7} experience)")
 
-
-def _has(text: str, phrases: list[str]) -> bool:
-    padded = f" {text} "
-    return any(f" {p} " in padded for p in phrases)
+_US = re.compile(r"\b(united states|usa|us)\b")
 
 
 def is_remote_us(location: str) -> bool:
     n = norm(location)
     words = n.split()
-    return "remote" in words and _has(n, ["united states", "usa", "us"]) and "canada" not in words
+    return "remote" in words and bool(_US.search(n)) and "canada" not in words
 
 
 def city_rank(location: str, rules: Rules) -> int:
     n = norm(location)
     for tier, cities in enumerate(rules.cities):
-        if _has(n, cities):
+        if cities.search(n):
             return tier
     after = len(rules.cities)  # remote, remote US, anything else rank after the last city tier
     if "remote" in n.split():
