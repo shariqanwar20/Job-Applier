@@ -1,9 +1,12 @@
+import logging
 import shutil
 from pathlib import Path
 
+import httpx
 import pytest
 
 from jobapplier import __main__ as app
+from jobapplier.notion.client import call, make_client
 from jobapplier.system import launchd
 from jobapplier.system.lock import locked
 from tests.conftest import AFFIRM_INDEED, FakeNotion, FakeSource
@@ -129,3 +132,13 @@ def test_notion_setup_creates_database_and_prints_snippet(home, monkeypatch, cap
     assert calls == [("client-tok", "page1")]
     out = capsys.readouterr().out
     assert "config.yaml" in out and "database_id: db9" in out and "data_source_id: ds9" in out
+
+
+def test_main_keeps_httpx_request_logs_out(monkeypatch, caplog):
+    monkeypatch.setattr(logging.getLogger("httpx"), "level", logging.NOTSET)  # restored after the test
+    monkeypatch.setattr(launchd, "uninstall", lambda: None)
+    app.main(["uninstall-agent"])
+    caplog.set_level(logging.INFO)
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={})))
+    call(make_client("tok", http).pages.create, parent={}, properties={})
+    assert not [r for r in caplog.records if r.name == "httpx"]

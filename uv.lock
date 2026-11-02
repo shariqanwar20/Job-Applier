@@ -381,10 +381,12 @@ name = "jobapplier"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "notion-client" },
     { name = "python-jobspy" },
     { name = "pyyaml" },
     { name = "requests" },
+    { name = "urllib3" },
 ]
 
 [package.dev-dependencies]
@@ -395,10 +397,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.28" },
     { name = "notion-client", specifier = "==3.1.0" },
     { name = "python-jobspy", specifier = "==1.4.1" },
     { name = "pyyaml" },
     { name = "requests" },
+    { name = "urllib3", specifier = ">=2" },
 ]
 
 [package.metadata.requires-dev]

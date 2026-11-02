@@ -53,6 +53,6 @@ class FreeHire(Source):
                 return postings, "freehire: malformed response"
             postings += page
             offset += _PAGE
-            # The API rejects offset + limit > 10000, so the last request is offset 9900.
+            # The API rejects offset + limit > _MAX_OFFSET, so the last request is offset 9900.
             if len(page) < _PAGE or offset >= total or offset >= _MAX_OFFSET:
                 return postings, None

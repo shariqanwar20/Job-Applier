@@ -9,9 +9,20 @@ from jobapplier.models import Posting
 __all__ = ["assign", "connect", "mark_pushed", "members", "pushable", "summarize", "total"]
 
 _ATS = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby", "workday": "Workday"}
-_COMPANY_NOISE = set(
-    ["inc", "ltd", "llc", "corp", "corporation", "company", "co", "group", "plc", "limited", "sa", "the"]
-)
+_COMPANY_NOISE = {
+    "inc",
+    "ltd",
+    "llc",
+    "corp",
+    "corporation",
+    "company",
+    "co",
+    "group",
+    "plc",
+    "limited",
+    "sa",
+    "the",
+}
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS clusters (
   id INTEGER PRIMARY KEY, key TEXT NOT NULL, first_seen TEXT NOT NULL,

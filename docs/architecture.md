@@ -257,7 +257,7 @@ At most 4 jobs start LLM work per hour (adjustable), so the pipeline doesn't use
 
 ## 11. How it gets built (simplicity first)
 
-Python 3.12 with standard-library `sqlite3` and dataclasses, and a few packages (JobSpy, requests, Playwright, PyYAML, msal). No ORM, no web framework, no task queue. Two small interfaces, **Source** and **ATS adapter**, plus a state machine in one module. Everything else is plain functions. Tests come first for the core logic, using today's spike data.
+Python 3.12 with standard-library `sqlite3` and dataclasses, and a few packages (JobSpy, requests, notion-client, Playwright, PyYAML, msal). No ORM, no web framework, no task queue. Two small interfaces, **Source** and **ATS adapter**, plus a state machine in one module. Everything else is plain functions. Tests come first for the core logic, using today's spike data.
 
 ```mermaid
 flowchart LR

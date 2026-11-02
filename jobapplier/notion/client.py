@@ -1,3 +1,4 @@
+import logging
 from time import sleep
 
 import httpx
@@ -13,7 +14,13 @@ class NotionError(Exception):
 
 def make_client(token: str, http: httpx.Client | None = None) -> Client:
     # The SDK retries 429 on every method but 5xx only on GET/DELETE, so a page create is never sent twice.
-    return Client(client=http, auth=token, retry=RetryOptions(max_retries=5))
+    # Our own logger: without one the SDK adds a handler that, with propagation, prints each warning twice.
+    return Client(
+        client=http,
+        auth=token,
+        retry=RetryOptions(max_retries=5),
+        logger=logging.getLogger("jobapplier.notion"),
+    )
 
 
 def call(endpoint, **kwargs) -> dict:
@@ -27,3 +34,5 @@ def call(endpoint, **kwargs) -> dict:
         raise NotionError(str(e)) from None
     except httpx.HTTPError as e:
         raise NotionError(f"network: {type(e).__name__}") from None  # the exception text can carry the URL
+    except ValueError:  # a 2xx whose body is not JSON
+        raise NotionError("malformed response") from None

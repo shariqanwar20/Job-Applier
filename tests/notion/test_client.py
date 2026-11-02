@@ -1,3 +1,5 @@
+import logging
+
 import httpx
 import pytest
 from notion_client import RequestTimeoutError
@@ -71,3 +73,17 @@ def test_call_wraps_sdk_and_transport_errors_without_the_url():
         call(raises(RequestTimeoutError()))
     with pytest.raises(NotionError, match=r"^network: ConnectError$"):
         call(raises(httpx.ConnectError("https://api.notion.com/v1/pages boom")))
+
+
+def test_a_non_json_success_body_is_a_notion_error():
+    http, _ = mock_http([httpx.Response(200, text="<html>gateway</html>")])
+    with pytest.raises(NotionError, match="malformed response"):
+        call(make_client("tok", http).pages.create, parent={}, properties={})
+
+
+def test_sdk_warnings_go_to_our_logger_once(caplog):
+    http, _ = mock_http([httpx.Response(400, json=error_body("validation_error"))])
+    with pytest.raises(NotionError):
+        call(make_client("tok", http).pages.create, parent={}, properties={})
+    warnings = [r.name for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings == ["jobapplier.notion"] and not logging.getLogger("notion_client").handlers

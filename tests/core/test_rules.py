@@ -64,3 +64,8 @@ def test_config_words_are_normalized(config):
         {**config, "rules": {**config["rules"], "cities": [["Montréal"]], "include": ["Developer"]}}
     )
     assert keep(job("Software Developer"), r) and city_rank("Montreal, QC", r) == 0
+
+
+def test_punctuation_only_word_matches_nothing(config):
+    r = Rules.from_config({**config, "rules": {**config["rules"], "include": ["developer", "-"]}})
+    assert not keep(job("Pastry Chef"), r) and keep(job("Software Developer"), r)

@@ -40,6 +40,7 @@ def test_retry_is_mounted_for_get_on_rate_limits_and_server_errors():
     retry = ApiClient("https://x", session=FakeSession([])).session.get_adapter("https://x/y").max_retries
     assert retry.total == 3 and set(retry.status_forcelist) == {429, 500, 502, 503, 504}
     assert set(retry.allowed_methods) == {"GET"} and retry.respect_retry_after_header is True
+    assert retry.raise_on_status is False
 
 
 def test_non_2xx_and_transport_errors_raise_api_error_without_the_url():

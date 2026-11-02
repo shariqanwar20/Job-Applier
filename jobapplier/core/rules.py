@@ -14,9 +14,10 @@ def norm(text: str) -> str:
 
 
 def _words(words: list[str]) -> re.Pattern:
-    if not words:  # an empty alternation would match every title
+    normed = [n for n in map(norm, words) if n]  # a punctuation-only word would be an empty, match-all branch
+    if not normed:  # an empty alternation would match every title
         return re.compile(r"(?!)")
-    return re.compile(r"\b(" + "|".join(re.escape(norm(w)) for w in words) + r")\b")
+    return re.compile(r"\b(" + "|".join(map(re.escape, normed)) + r")\b")
 
 
 @dataclass(frozen=True)

@@ -38,9 +38,8 @@ def _agent_path() -> Path:
 
 
 def _bootout(run) -> None:
-    run(
-        ["launchctl", "bootout", f"gui/{os.getuid()}/{_LABEL}"], check=False, capture_output=True
-    )  # fails when not loaded yet
+    # check=False: bootout fails when the agent is not loaded yet
+    run(["launchctl", "bootout", f"gui/{os.getuid()}/{_LABEL}"], check=False, capture_output=True)
 
 
 def install(repo: Path, uv: str, run=subprocess.run) -> Path:

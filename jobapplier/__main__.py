@@ -41,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # it logs every request at INFO
     load_env(_ROOT / ".env")
     if args.command == "notion-setup":
         return _notion_setup(args.parent_page_id)
