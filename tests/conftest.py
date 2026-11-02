@@ -1,10 +1,14 @@
 import pathlib
+from types import SimpleNamespace
 
+import httpx
 import pytest
 import yaml
+from notion_client import APIResponseError
 
 from jobapplier.core.rules import Rules
 from jobapplier.models import Posting
+from jobapplier.notion import client as notion_client_mod
 
 ROOT = pathlib.Path(__file__).parent.parent
 
@@ -35,51 +39,48 @@ class FakeSource:
         return self.result
 
 
-class Resp:
-    def __init__(self, status_code, body=None, headers=None):
-        self.status_code, self._body, self.headers = status_code, body or {}, headers or {}
-        self.text = str(self._body)
-
-    def json(self):
-        return self._body
-
-
-class FakeSession:
-    """Serves queued responses and records every call."""
-
-    def __init__(self, responses):
-        self.responses, self.calls = list(responses), []
-
-    def request(self, method, url, headers=None, json=None, timeout=None):
-        self.calls.append({"method": method, "url": url, "headers": headers, "json": json, "timeout": timeout})
-        r = self.responses.pop(0)
-        if isinstance(r, Exception):
-            raise r
-        return r
+def api_error(status, code, message="boom"):
+    """An SDK error as notion_client raises it for an HTTP error response."""
+    return APIResponseError(code=code, status=status, message=message, headers=httpx.Headers(), raw_body_text="")
 
 
 class FakeNotion:
-    """In-memory stand-in for jobapplier.notion.client.Notion: pages by id, create fails on the Nth attempt in fail_on_create."""
+    """In-memory stand-in for notion_client.Client with the methods we call.
 
-    def __init__(self, fail_on_create=()):
-        from jobapplier.notion.client import NotionError
+    rows holds created pages by id; fail_on_create maps the Nth create attempt to the exception it raises.
+    """
 
-        self.error = NotionError
-        self.pages, self.fail_on_create, self.creates, self.description = {}, set(fail_on_create), 0, None
+    def __init__(self, fail_on_create=None):
+        self.rows, self.fail_on_create, self.creates, self.description, self.calls = {}, dict(fail_on_create or {}), 0, None, []
+        self.databases = SimpleNamespace(create=self._create_database, update=self._update_database)
+        self.data_sources = SimpleNamespace(query=self._query)
+        self.pages = SimpleNamespace(create=self._create_page)
 
-    def request(self, method, path, body=None):
-        if path.endswith("/query"):
-            want = body["filter"]["rich_text"]["equals"]
-            hits = [{"id": pid} for pid, p in self.pages.items() if p["Job ID"]["rich_text"][0]["text"]["content"] == want]
-            return {"results": hits[: body["page_size"]]}
-        if method == "POST" and path == "/v1/pages":
-            self.creates += 1
-            if self.creates in self.fail_on_create:
-                raise self.error("400 validation_error")
-            pid = f"page-{len(self.pages) + 1}"
-            self.pages[pid] = body["properties"]
-            return {"id": pid}
-        if method == "PATCH" and path.startswith("/v1/databases/"):
-            self.description = body["description"][0]["text"]["content"]
-            return {}
-        raise AssertionError(f"unexpected {method} {path}")
+    def _query(self, data_source_id, **kw):
+        self.calls.append(("data_sources.query", {"data_source_id": data_source_id, **kw}))
+        want = kw["filter"]["rich_text"]["equals"]
+        hits = [{"id": pid} for pid, p in self.rows.items() if p["Job ID"]["rich_text"][0]["text"]["content"] == want]
+        return {"results": hits[: kw["page_size"]]}
+
+    def _create_page(self, **kw):
+        self.calls.append(("pages.create", kw))
+        self.creates += 1
+        if self.creates in self.fail_on_create:
+            raise self.fail_on_create[self.creates]
+        pid = f"page-{len(self.rows) + 1}"
+        self.rows[pid] = kw["properties"]
+        return {"id": pid}
+
+    def _update_database(self, database_id, **kw):
+        self.calls.append(("databases.update", {"database_id": database_id, **kw}))
+        self.description = kw["description"][0]["text"]["content"]
+        return {}
+
+    def _create_database(self, **kw):
+        self.calls.append(("databases.create", kw))
+        return {"id": "db1", "data_sources": [{"id": "ds1"}]}
+
+
+@pytest.fixture(autouse=True)
+def no_notion_pacing(monkeypatch):
+    monkeypatch.setattr(notion_client_mod, "sleep", lambda seconds: None)

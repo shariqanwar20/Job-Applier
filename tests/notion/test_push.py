@@ -1,11 +1,10 @@
 from datetime import datetime, timezone
 
-import requests
-from tests.conftest import FakeNotion, FakeSession, Resp
+import httpx
+from tests.conftest import FakeNotion, api_error
 
 from jobapplier.core.clusters import assign, connect
 from jobapplier.models import Posting
-from jobapplier.notion.client import Notion
 from jobapplier.notion.push import SCHEMA, create_database, find_page, page_properties, push, set_status
 
 NOW = datetime(2026, 10, 31, 12, tzinfo=timezone.utc)
@@ -30,27 +29,26 @@ def test_page_properties_posted_and_long_text():
 
 
 def test_find_page_queries_by_job_id():
-    s = FakeSession([Resp(200, {"results": []}), Resp(200, {"results": [{"id": "p9"}]})])
-    n = Notion("tok", session=s, sleep=lambda _: None)
-    assert find_page(n, "ds1", "J1") is None and find_page(n, "ds1", "J1") == "p9"
-    assert s.calls[0]["url"].endswith("/v1/data_sources/ds1/query")
-    assert s.calls[0]["json"] == {"filter": {"property": "Job ID", "rich_text": {"equals": "J1"}}, "page_size": 1}
+    n = FakeNotion()
+    assert find_page(n, "ds1", "J1") is None
+    n.rows["p9"] = {"Job ID": {"rich_text": [{"text": {"content": "J1"}}]}}
+    assert find_page(n, "ds1", "J1") == "p9"
+    assert n.calls[0] == ("data_sources.query", {"data_source_id": "ds1", "filter": {"property": "Job ID", "rich_text": {"equals": "J1"}}, "page_size": 1})
 
 
 def test_set_status_patches_description_cut_to_2000():
-    s = FakeSession([Resp(200, {})])
-    set_status(Notion("tok", session=s, sleep=lambda _: None), "db1", "x" * 3000)
-    assert s.calls[0]["method"] == "PATCH" and s.calls[0]["url"].endswith("/v1/databases/db1")
-    assert len(s.calls[0]["json"]["description"][0]["text"]["content"]) == 2000
+    n = FakeNotion()
+    set_status(n, "db1", "x" * 3000)
+    name, kw = n.calls[0]
+    assert name == "databases.update" and kw["database_id"] == "db1" and len(kw["description"][0]["text"]["content"]) == 2000
 
 
 def test_create_database_posts_schema_and_returns_ids():
-    s = FakeSession([Resp(200, {"id": "db1", "data_sources": [{"id": "ds1"}]})])
-    assert create_database(Notion("tok", session=s, sleep=lambda _: None), "parent1") == ("db1", "ds1")
-    call = s.calls[0]
-    assert call["method"] == "POST" and call["url"].endswith("/v1/databases")
-    assert call["json"]["parent"] == {"type": "page_id", "page_id": "parent1"}
-    assert call["json"]["initial_data_source"] == {"properties": SCHEMA}
+    n = FakeNotion()
+    assert create_database(n, "parent1") == ("db1", "ds1")
+    name, kw = n.calls[0]
+    assert name == "databases.create" and kw["parent"] == {"type": "page_id", "page_id": "parent1"}
+    assert kw["initial_data_source"] == {"properties": SCHEMA}
 
 
 def seed(rules, count=3):
@@ -63,20 +61,20 @@ def seed(rules, count=3):
 
 
 def test_push_skips_a_failing_row_and_resumes_without_duplicates(rules):
-    conn, n = seed(rules), FakeNotion(fail_on_create={2})
+    conn, n = seed(rules), FakeNotion(fail_on_create={2: api_error(400, "validation_error")})
     created, errors = push(conn, n, "ds1", rules)
-    assert created == 2 and len(errors) == 1 and errors[0].startswith("notion: J2: ")
+    assert created == 2 and len(errors) == 1 and errors[0].startswith("notion: J2: 400 ")
     stored = {r["id"]: r["notion_page_id"] for r in conn.execute("SELECT id, notion_page_id FROM clusters")}
     assert stored[1] and stored[3] and stored[2] is None
     n.fail_on_create.clear()
     assert push(conn, n, "ds1", rules) == (1, [])
-    ids = [p["Job ID"]["rich_text"][0]["text"]["content"] for p in n.pages.values()]
+    ids = [p["Job ID"]["rich_text"][0]["text"]["content"] for p in n.rows.values()]
     assert sorted(ids) == ["J1", "J2", "J3"]
 
 
 def test_push_reuses_existing_page_found_by_job_id(rules):
     conn, n = seed(rules, 1), FakeNotion()
-    n.pages["old-page"] = {"Job ID": {"rich_text": [{"text": {"content": "J1"}}]}}
+    n.rows["old-page"] = {"Job ID": {"rich_text": [{"text": {"content": "J1"}}]}}
     assert push(conn, n, "ds1", rules) == (0, [])
     assert conn.execute("SELECT notion_page_id FROM clusters").fetchone()[0] == "old-page" and n.creates == 0
 
@@ -84,21 +82,15 @@ def test_push_reuses_existing_page_found_by_job_id(rules):
 def test_push_sends_the_repost_flag_and_data_source_parent(rules):
     conn = seed(rules, 1)
     conn.execute("UPDATE clusters SET repost = 1")
-    sent = []
     n = FakeNotion()
-    real = n.request
-    n.request = lambda m, p, b=None: sent.append((p, b)) or real(m, p, b)
     push(conn, n, "ds1", rules)
-    page = next(b for p, b in sent if p == "/v1/pages")
+    page = next(kw for name, kw in n.calls if name == "pages.create")
     assert page["parent"] == {"type": "data_source_id", "data_source_id": "ds1"}
     assert {"name": "Repost"} in page["properties"]["Flags"]["multi_select"]
 
 
 def test_push_treats_a_network_error_as_a_per_row_error(rules):
-    ok = lambda body: Resp(200, body)
-    s = FakeSession([ok({"results": []}), ok({"id": "p1"}), ok({"results": []}), requests.ConnectionError("https://api.notion.com boom"),
-                     ok({"results": []}), ok({"id": "p3"})])
-    conn = seed(rules)
-    created, errors = push(conn, Notion("tok", session=s, sleep=lambda _: None), "ds1", rules)
-    assert created == 2 and errors == ["notion: J2: network: ConnectionError"]
-    assert [r[0] for r in conn.execute("SELECT notion_page_id FROM clusters ORDER BY id")] == ["p1", None, "p3"]
+    conn, n = seed(rules), FakeNotion(fail_on_create={2: httpx.ConnectError("https://api.notion.com boom")})
+    created, errors = push(conn, n, "ds1", rules)
+    assert created == 2 and errors == ["notion: J2: network: ConnectError"]
+    assert [r[0] for r in conn.execute("SELECT notion_page_id FROM clusters ORDER BY id")] == ["page-1", None, "page-2"]

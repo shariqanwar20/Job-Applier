@@ -37,7 +37,7 @@ def test_main_without_notion_ids_notifies_and_fails(home):
 def test_main_returns_zero_when_locked(home, monkeypatch):
     root, notes = home
     set_ids(root)
-    monkeypatch.setattr(app, "Notion", lambda token: pytest.fail("must not start work"))
+    monkeypatch.setattr(app, "make_client", lambda token: pytest.fail("must not start work"))
     (root / "data").mkdir()
     with locked(str(root / "data" / "run.lock")):
         assert app.main(["discover"]) == 0
@@ -48,17 +48,17 @@ def test_main_runs_and_notifies_on_alert(home, monkeypatch):
     root, notes = home
     set_ids(root)
     n = FakeNotion()
-    monkeypatch.setattr(app, "Notion", lambda token: n)
+    monkeypatch.setattr(app, "make_client", lambda token: n)
     monkeypatch.setattr(app, "build_sources", lambda cfg: [FakeSource("indeed", ([AFFIRM_INDEED], None)), FakeSource("freehire", ([], "freehire: HTTP 500"))])
     assert app.main(["discover"]) == 0
-    assert len(n.pages) == 1 and (root / "data" / "jobs.db").exists()
+    assert len(n.rows) == 1 and (root / "data" / "jobs.db").exists()
     assert len(notes) == 1 and "freehire: HTTP 500" in notes[0][1]
 
 
 def test_main_unexpected_exception_notifies_and_returns_one(home, monkeypatch):
     root, notes = home
     set_ids(root)
-    monkeypatch.setattr(app, "Notion", lambda token: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(app, "make_client", lambda token: (_ for _ in ()).throw(RuntimeError("boom")))
     assert app.main(["discover"]) == 1
     assert len(notes) == 1 and "boom" in notes[0][1]
 
@@ -69,7 +69,7 @@ def test_main_reads_token_from_env_file(home, monkeypatch):
     monkeypatch.delenv("NOTION_TOKEN")
     (root / ".env").write_text("NOTION_TOKEN=from-file\n")
     tokens = []
-    monkeypatch.setattr(app, "Notion", lambda token: tokens.append(token) or FakeNotion())
+    monkeypatch.setattr(app, "make_client", lambda token: tokens.append(token) or FakeNotion())
     monkeypatch.setattr(app, "build_sources", lambda cfg: [])
     assert app.main(["discover"]) == 0
     assert tokens == ["from-file"]
@@ -114,7 +114,7 @@ def test_uninstall_agent_dispatches_to_launchd(monkeypatch):
 
 def test_notion_setup_creates_database_and_prints_snippet(home, monkeypatch, capsys):
     calls = []
-    monkeypatch.setattr(app, "Notion", lambda token: f"client-{token}")
+    monkeypatch.setattr(app, "make_client", lambda token: f"client-{token}")
     monkeypatch.setattr(app, "create_database", lambda n, page: calls.append((n, page)) or ("db9", "ds9"))
     assert app.main(["notion-setup", "page1"]) == 0
     assert calls == [("client-tok", "page1")]

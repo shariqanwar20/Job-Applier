@@ -1,30 +1,27 @@
-import time
+from time import sleep
 
-import requests
-
-BASE = "https://api.notion.com"
+import httpx
+from notion_client import Client, RetryOptions
+from notion_client.errors import HTTPResponseError, NotionClientErrorBase
 
 
 class NotionError(Exception):
     pass
 
 
-class Notion:
-    def __init__(self, token: str, session=None, sleep=time.sleep):
-        self.session, self.sleep = session or requests.Session(), sleep
-        self.headers = {"Authorization": f"Bearer {token}", "Notion-Version": "2025-09-03", "Content-Type": "application/json"}
+def make_client(token: str, http: httpx.Client | None = None) -> Client:
+    # The SDK retries 429 on every method but 5xx only on GET/DELETE, so a page create is never sent twice.
+    return Client(client=http, auth=token, retry=RetryOptions(max_retries=5))
 
-    def request(self, method: str, path: str, body: dict | None = None) -> dict:
-        for attempt in range(6):
-            self.sleep(0.35)  # stays under Notion's ~3 requests/second
-            try:
-                resp = self.session.request(method, BASE + path, headers=self.headers, json=body, timeout=30)
-            except requests.RequestException as e:
-                raise NotionError(f"network: {type(e).__name__}") from None  # the exception text can carry the URL
-            if resp.status_code in (429, 529) and attempt < 5:
-                self.sleep(float(resp.headers.get("Retry-After", 1)))
-                continue
-            break
-        if not 200 <= resp.status_code < 300:
-            raise NotionError(f"{resp.status_code} {resp.text[:300]}")
-        return resp.json()
+
+def call(endpoint, **kwargs) -> dict:
+    """Runs one SDK call, paced, with every SDK or transport failure raised as NotionError."""
+    sleep(0.35)  # the SDK does not pace; this stays under Notion's ~3 requests/second
+    try:
+        return endpoint(**kwargs)
+    except HTTPResponseError as e:
+        raise NotionError(f"{e.status} {e}") from None
+    except NotionClientErrorBase as e:
+        raise NotionError(str(e)) from None
+    except httpx.HTTPError as e:
+        raise NotionError(f"network: {type(e).__name__}") from None  # the exception text can carry the URL

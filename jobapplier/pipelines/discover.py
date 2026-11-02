@@ -10,7 +10,7 @@ from jobapplier.notion.push import push, set_status
 log = logging.getLogger("jobapplier")
 
 
-def run_discover(conn, cfg: dict, rules: Rules, sources: list, n, now: datetime) -> dict:
+def run_discover(conn, cfg: dict, rules: Rules, sources: list, client, now: datetime) -> dict:
     errors, skipped, first_skip = [], 0, None
     for src in sources:
         try:
@@ -31,11 +31,11 @@ def run_discover(conn, cfg: dict, rules: Rules, sources: list, n, now: datetime)
         errors.append(f"skipped {skipped} postings: {first_skip}")
     conn.commit()  # before pushing: push commits per cluster and must not lose the assignments
 
-    created, push_errors = push(conn, n, cfg["notion"]["data_source_id"], rules)
+    created, push_errors = push(conn, client, cfg["notion"]["data_source_id"], rules)
     errors += push_errors
     text = f"Last discover {now.astimezone():%Y-%m-%d %H:%M} · {created} new · {clusters.total(conn)} total · errors: {'; '.join(errors) or 'none'}"
     try:
-        set_status(n, cfg["notion"]["database_id"], text)
+        set_status(client, cfg["notion"]["database_id"], text)
     except NotionError as exc:
         errors.append(f"notion: {exc}")
     return {"new_rows": created, "errors": errors, "alert": any(e != "linkedin: 429" for e in errors)}

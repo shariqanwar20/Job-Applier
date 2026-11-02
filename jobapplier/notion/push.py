@@ -1,5 +1,7 @@
+from notion_client import Client
+
 from jobapplier.core import clusters
-from jobapplier.notion.client import Notion, NotionError
+from jobapplier.notion.client import NotionError, call
 
 
 def _options(*names: str) -> dict:
@@ -24,12 +26,13 @@ SCHEMA = {
 }
 
 
-def create_database(n: Notion, parent_page_id: str) -> tuple[str, str]:
-    r = n.request("POST", "/v1/databases", {
-        "parent": {"type": "page_id", "page_id": parent_page_id},
-        "title": [{"text": {"content": "Jobs"}}],
-        "initial_data_source": {"properties": SCHEMA},
-    })
+def create_database(client: Client, parent_page_id: str) -> tuple[str, str]:
+    r = call(
+        client.databases.create,
+        parent={"type": "page_id", "page_id": parent_page_id},
+        title=[{"text": {"content": "Jobs"}}],
+        initial_data_source={"properties": SCHEMA},
+    )
     return r["id"], r["data_sources"][0]["id"]
 
 
@@ -57,25 +60,26 @@ def page_properties(job_id: str, s: dict, first_seen: str) -> dict:
     return props
 
 
-def find_page(n: Notion, ds_id: str, job_id: str) -> str | None:
-    r = n.request("POST", f"/v1/data_sources/{ds_id}/query", {
-        "filter": {"property": "Job ID", "rich_text": {"equals": job_id}}, "page_size": 1})
+def find_page(client: Client, ds_id: str, job_id: str) -> str | None:
+    r = call(client.data_sources.query, data_source_id=ds_id,
+             filter={"property": "Job ID", "rich_text": {"equals": job_id}}, page_size=1)
     return r["results"][0]["id"] if r["results"] else None
 
 
-def push(conn, n: Notion, ds_id: str, rules) -> tuple[int, list[str]]:
+def push(conn, client: Client, ds_id: str, rules) -> tuple[int, list[str]]:
     created, errors = 0, []
     for row in clusters.pushable(conn):
         job_id = f"J{row['id']}"
         s = clusters.summarize(clusters.members(conn, row["id"]), rules, bool(row["repost"]))
         try:
             # Look up first: a crash after the create but before the commit must not duplicate the row.
-            page_id = find_page(n, ds_id, job_id)
+            page_id = find_page(client, ds_id, job_id)
             if page_id is None:
-                page_id = n.request("POST", "/v1/pages", {
-                    "parent": {"type": "data_source_id", "data_source_id": ds_id},
-                    "properties": page_properties(job_id, s, row["first_seen"]),
-                })["id"]
+                page_id = call(
+                    client.pages.create,
+                    parent={"type": "data_source_id", "data_source_id": ds_id},
+                    properties=page_properties(job_id, s, row["first_seen"]),
+                )["id"]
                 created += 1
         except NotionError as exc:
             errors.append(f"notion: {job_id}: {exc}")
@@ -85,5 +89,5 @@ def push(conn, n: Notion, ds_id: str, rules) -> tuple[int, list[str]]:
     return created, errors
 
 
-def set_status(n: Notion, database_id: str, text: str) -> None:
-    n.request("PATCH", f"/v1/databases/{database_id}", {"description": [{"text": {"content": text[:2000]}}]})
+def set_status(client: Client, database_id: str, text: str) -> None:
+    call(client.databases.update, database_id=database_id, description=[{"text": {"content": text[:2000]}}])

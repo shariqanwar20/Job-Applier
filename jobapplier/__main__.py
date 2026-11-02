@@ -11,7 +11,7 @@ from pathlib import Path
 from jobapplier.config import load_config, load_env
 from jobapplier.core import clusters
 from jobapplier.core.rules import Rules
-from jobapplier.notion.client import Notion
+from jobapplier.notion.client import make_client
 from jobapplier.notion.push import create_database
 from jobapplier.pipelines.discover import run_discover
 from jobapplier.sources import build_sources
@@ -65,7 +65,7 @@ def notion_setup(parent_page_id: str) -> int:
     if not token:
         print(NO_TOKEN)
         return 1
-    database_id, ds_id = create_database(Notion(token), parent_page_id)
+    database_id, ds_id = create_database(make_client(token), parent_page_id)
     print(f"Paste into your config.yaml:\nnotion:\n  database_id: {database_id}\n  data_source_id: {ds_id}")
     return 0
 
@@ -90,8 +90,8 @@ def discover() -> int:
                 log.info("another run holds the lock; exiting")
                 return 0
             conn = clusters.connect(str(ROOT / "data" / "jobs.db"))
-            n = Notion(token)
-            result = run_discover(conn, cfg, Rules.from_config(cfg), build_sources(cfg), n, datetime.now(timezone.utc))
+            client = make_client(token)
+            result = run_discover(conn, cfg, Rules.from_config(cfg), build_sources(cfg), client, datetime.now(timezone.utc))
         log.info("discover done: %s", result)
         if result["alert"]:
             notify("JobApplier: discover errors", "; ".join(result["errors"]))
