@@ -80,7 +80,7 @@ Optional. With Gmail connected, discover marks a new row **Applied before** when
 The connection can only read. It asks Google for the single scope `gmail.readonly`, so the saved token cannot send, change or delete mail, whatever the code does. Gmail calls go to `gmail.googleapis.com` and are all GETs (only the token refresh posts, to Google's sign-in server).
 
 1. At console.cloud.google.com, create a project and enable the Gmail API.
-2. Under Google Auth Platform, set Audience to External and add yourself as a test user. Then click "Publish app": in Testing mode Google expires the refresh token after 7 days. An unverified app for personal use is fine; you click through an "unverified app" warning once.
+2. Under Google Auth Platform, set Audience to External and add yourself as a test user. Leave the app in Testing: Google then ends the sign-in after 7 days, and discover alerts "sign in again" (run `mail-login`, about 10 seconds). Publishing avoids that but needs a public homepage and privacy policy on a domain you own.
 3. Under Data access, add the scope `https://www.googleapis.com/auth/gmail.readonly`.
 4. Under Clients, create an OAuth client of type Desktop app and download its JSON to `data/gmail_client.json` (`mail.client_secrets`; `data/` is git-ignored).
 5. Run `uv run python -m jobapplier mail-login`. It opens your browser for a one-time sign-in, with Google redirecting back to a temporary port on localhost, then saves the token to `data/gmail_token.json` (mode 600) and prints `Gmail OK: <your address>`.
