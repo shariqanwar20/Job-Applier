@@ -75,7 +75,9 @@ def _prompt(items: list[Item], job: dict, cfg: dict) -> str:
     )
 
 
-def _check(answer: dict, by_id: dict[str, Item], cfg: dict) -> tuple[list[dict], list[str], list[str]]:
+def _check(
+    answer: dict, by_id: dict[str, Item], cfg: dict, job_text: str
+) -> tuple[list[dict], list[str], list[str]]:
     """(plan, grounding problems, style problems); a rejected line is already back to its master text."""
     plan, problems, style = [], [], []
     for e in (x for s in answer.get("sections", []) for x in s.get("items", [])):
@@ -90,7 +92,7 @@ def _check(answer: dict, by_id: dict[str, Item], cfg: dict) -> tuple[list[dict],
             continue
         if not re.search(r"[A-Za-z]", text):
             problems.append(f"{anchor}: the new text has no words; kept the master line")
-        elif why := grounding_problems(text, master, cfg["tailor"]):
+        elif why := grounding_problems(text, master, cfg["tailor"], job_text):
             problems.append(f"{anchor}: {'; '.join(why)}; kept the master line")
         elif why := style_problems(text, cfg["tailor"]):
             style.append(f"{anchor}: {'; '.join(why)}")
@@ -119,10 +121,11 @@ def tailor(items: list[Item], job: dict, cfg: dict, llm_run) -> tuple[list[dict]
     """
     by_id = {i.id: i for i in items}
     prompt, model = _prompt(items, job, cfg), cfg["llm"]["models"]["tailor"]
-    plan, problems, style = _check(llm_run(prompt, _SCHEMA, model, writing=True), by_id, cfg)
+    job_text = job["description"][: cfg["tailor"]["max_description_chars"]]
+    plan, problems, style = _check(llm_run(prompt, _SCHEMA, model, writing=True), by_id, cfg, job_text)
     if style:
         retry = (
             prompt + "\nYour last answer broke these rules. Fix them:\n" + "\n".join(f"- {s}" for s in style)
         )
-        plan, problems, style = _check(llm_run(retry, _SCHEMA, model, writing=True), by_id, cfg)
+        plan, problems, style = _check(llm_run(retry, _SCHEMA, model, writing=True), by_id, cfg, job_text)
     return plan, problems + [f"{s}; kept the master line" for s in style]

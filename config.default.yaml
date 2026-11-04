@@ -70,5 +70,10 @@ tailor:  # a one-page resume per approved row, from resume/master.tex; see READM
   # Never in a rewritten line (whole words, case-insensitive); seeded from Humanizer's AI-vocabulary list.
   banned_phrases: [delve, delved, leverage, leveraged, leveraging, robust, showcase, showcased, pivotal, crucial, spearheaded, testament, seamless, seamlessly, cutting-edge]
   # A line may use one of inflating_verbs only when its master line does and has none of modest_verbs.
-  inflating_verbs: [led, owned, architected, spearheaded, drove]
+  # Words are compared with a light stem (-ing, -ed, -s, a final e), so "leads" matches "lead".
+  inflating_verbs: [lead, leads, leading, led, own, owns, owning, owned, drive, drives, driving, drove, architect, architects, architecting, architected, spearhead, spearheads, spearheading, spearheaded]
   modest_verbs: [contributed, assisted, helped, supported]
+  # Spelled-out numbers: like a digit, each must be in the master line.
+  number_words: [one, two, three, four, five, six, seven, eight, nine, ten, eleven, twelve, thirteen, fourteen, fifteen, sixteen, seventeen, eighteen, nineteen, twenty, thirty, forty, fifty, hundred, hundreds, thousand, thousands, million, millions, billion, dozen, dozens, double, triple, twice, half]
+  # A word from the job description must be in the master line, unless it is here or in allow_words.
+  common_words: [a, an, the, and, or, but, of, to, in, "on", for, with, by, at, from, into, onto, over, across, through, using, via, as, that, which, who, this, these, those, it, its, their, our, we, you, your, is, are, be, been, was, were, new, multiple, several, many, more, most, all, each, every, other, both, team, teams, data, service, services, system, systems, code, tool, tools, test, tests, user, users, build, run, change, changes, work, project, projects, feature, features, product, products, app, application, applications, software, help, make, use, support, write, improve, design, develop, create, maintain, up, out]
