@@ -5,7 +5,7 @@ import logging
 import subprocess
 from pathlib import Path
 
-__all__ = ["LlmError", "run"]
+__all__ = ["LlmError", "run", "run_with_cost"]
 
 _ROOT = Path(__file__).resolve().parents[1]  # writing calls load the repo's .claude/skills from here
 _log = logging.getLogger("jobapplier")
@@ -18,7 +18,12 @@ class LlmError(Exception):
     pass
 
 
-def run(
+def run(prompt: str, schema: dict, model: str, writing: bool, claude: str, **kw) -> dict:
+    """Returns the schema-shaped answer. Errors never carry the prompt, which holds the owner's resume."""
+    return run_with_cost(prompt, schema, model, writing, claude, **kw)[0]
+
+
+def run_with_cost(
     prompt: str,
     schema: dict,
     model: str,
@@ -26,8 +31,8 @@ def run(
     claude: str,
     runner=subprocess.run,
     timeout: int = 300,
-) -> dict:
-    """Returns the schema-shaped answer. Errors never carry the prompt, which holds the owner's resume."""
+) -> tuple[dict, float]:
+    """(the answer, as run returns it; the call's total_cost_usd)."""
     argv = [claude, "-p", "--model", model, "--output-format", "json", "--json-schema", json.dumps(schema)]
     argv += [*(_WRITING if writing else _CLASSIFY), "--strict-mcp-config", "--no-session-persistence"]
     try:
@@ -48,4 +53,4 @@ def run(
     if not isinstance(out.get("structured_output"), dict):
         raise LlmError(f"claude: no structured_output ({out.get('subtype')})")
     _log.info("claude %s cost $%s", model, out.get("total_cost_usd"))
-    return out["structured_output"]
+    return out["structured_output"], float(out.get("total_cost_usd") or 0)

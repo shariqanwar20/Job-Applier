@@ -91,3 +91,13 @@ def test_failures_raise_llm_error_without_the_prompt(r, message):
     with pytest.raises(llm.LlmError, match=message) as info:
         llm.run("SECRET PROMPT", SCHEMA, "m", writing=True, claude="claude", runner=r)
     assert "SECRET" not in str(info.value) and "E" * 201 not in str(info.value)
+
+
+def test_run_with_cost_also_returns_the_calls_cost():
+    r = runner(ok({"a": "b"}, cost=0.0421))
+    assert llm.run_with_cost("p", SCHEMA, "m", writing=False, claude="claude", runner=r) == (
+        {"a": "b"},
+        0.0421,
+    )
+    r = runner(json.dumps({"is_error": False, "structured_output": {"a": "b"}}))
+    assert llm.run_with_cost("p", SCHEMA, "m", writing=False, claude="claude", runner=r) == ({"a": "b"}, 0.0)
