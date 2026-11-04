@@ -263,24 +263,46 @@ def test_the_apply_code_never_submits_presses_keys_or_types_passwords(path):
         r"getattr\(",  # a method picked by name could be any of these
         r"__getattribute__",
         r"\beval\(",
+        r"methodcaller",
+        r"prototype\.click",
+        r"\[\s*['\"]click['\"]\s*\]",
+        r"\.click\.(call|apply|bind)",
+        r"\.checked\s*=",
     ]
     assert [p for p in forbidden if re.search(p, src, re.I)] == []
     called = set(re.findall(r"\.(fill|select_option|check|set_input_files|uncheck)\(", src))
     assert called <= {"fill", "select_option", "check", "set_input_files"}
 
 
-def test_the_only_click_is_in_click_next():
-    clicks = []
+def _calls(attrs: tuple[str, ...]) -> tuple[list, list]:
+    """(every call to one of attrs anywhere in the apply code, as (file, function or None, attr);
+    the same list built from every AST node, so a call in a lambda, class body or module level counts)."""
+    found, everywhere = [], []
     for path in APPLY_CODE:
         tree = ast.parse(path.read_text())
-        for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in attrs
+            ):
+                everywhere.append((path.name, node.func.attr, node.lineno))
+        for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]:
             for node in ast.walk(fn):
-                if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "click":
-                    clicks.append((path.name, fn.name))
-    assert clicks == [("browser.py", "_click_next")]
-    assert (
-        sum(len(re.findall(r"\.click\(", p.read_text())) for p in APPLY_CODE) == 1
-    )  # none outside a function
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in attrs
+                ):
+                    found.append((path.name, fn.name, node.func.attr))
+    return found, everywhere
+
+
+def test_the_only_click_is_in_click_next():
+    found, everywhere = _calls(("click", "dblclick", "tap"))
+    assert found == [("browser.py", "_click_next", "click")] and len(everywhere) == 1
+    # a click in a page script string counts too
+    assert sum(len(re.findall(r"\.click\(", p.read_text(), re.I)) for p in APPLY_CODE) == 1
 
 
 CONSENT = "I agree to the privacy policy and certify that my answers are accurate"
@@ -415,21 +437,9 @@ def test_the_text_before_a_field_is_looked_for_only_inside_its_form_or_fieldset(
 
 
 def test_the_only_check_is_in_fill_page_for_a_planned_radio_or_consent_box():
-    checks = []
-    for path in APPLY_CODE:
-        for fn in [n for n in ast.walk(ast.parse(path.read_text())) if isinstance(n, ast.FunctionDef)]:
-            for node in ast.walk(fn):
-                called = (
-                    node.func.attr
-                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                    else ""
-                )
-                if called in ("check", "set_input_files"):
-                    checks.append((path.name, fn.name, called))
-    assert sorted(checks) == [
-        ("fill.py", "fill_page", "check"),
-        ("fill.py", "upload_file", "set_input_files"),
-    ]
+    found, everywhere = _calls(("check", "set_input_files", "set_checked", "uncheck"))
+    assert sorted(found) == [("fill.py", "fill_page", "check"), ("fill.py", "upload_file", "set_input_files")]
+    assert len(everywhere) == 2
 
 
 @pytest.mark.parametrize(
