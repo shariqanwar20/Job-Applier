@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from jobapplier.core import clusters
-from jobapplier.notion.push import approved_rows, attach_resume, ensure_tailor_schema
+from jobapplier.notion.push import approved_rows, attach_resume, ensure_tailor_schema, prop_text
 from jobapplier.resume.build import fit, pdf_path
 from jobapplier.resume.master import Item, MasterError, parse
 from jobapplier.resume.tailor import tailor
@@ -16,24 +16,18 @@ __all__ = ["run_tailor"]
 _log = logging.getLogger("jobapplier")
 
 
-def _text(prop: dict) -> str:
-    return "".join(
-        t.get("plain_text") or t["text"]["content"] for t in prop.get("title") or prop.get("rich_text") or []
-    )
-
-
 def _one(
     page: dict, client, conn, cfg: dict, items: list[Item], tex: str, llm_run, root: Path, runner
 ) -> str:
     """Tailors one row and returns the Status it got."""
     props, t = page["properties"], cfg["tailor"]
-    job_id = _text(props["Job ID"])
+    job_id = prop_text(props["Job ID"])
     members = clusters.members(conn, int(job_id[1:])) if re.fullmatch(r"J\d+", job_id) else []
     if not members:
         raise ValueError(f"no cluster for {job_id} in data/jobs.db")
     job = {
-        "company": _text(props["Company"]),
-        "title": _text(props["Title"]),
+        "company": prop_text(props["Company"]),
+        "title": prop_text(props["Title"]),
         "description": max((m.description or "" for m in members), key=len),
     }
     plan, problems = tailor(items, job, cfg, llm_run)
@@ -81,7 +75,7 @@ def run_tailor(
             status = _one(page, client, conn, cfg, items, tex, llm_run, root, runner)
         except Exception as exc:  # one bad row must not stop the others
             _log.exception("tailor failed for %s", page["id"])
-            result["errors"].append(f"{_text(page['properties'].get('Job ID', {})) or page['id']}: {exc}")
+            result["errors"].append(f"{prop_text(page['properties'].get('Job ID', {})) or page['id']}: {exc}")
             continue
         result["tailored" if status == "Tailored" else "review"] += 1
     return result

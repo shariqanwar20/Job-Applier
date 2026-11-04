@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from playwright.sync_api import Error as PlaywrightError
 
-from jobapplier.core.rules import norm
+from jobapplier.core.rules import norm, words
 
 __all__ = [
     "FieldRules",
@@ -121,11 +121,6 @@ _BUTTONS = (
 )
 
 
-def _words(phrases: list[str]) -> re.Pattern:
-    normed = [n for n in map(norm, phrases) if n]
-    return re.compile(r"\b(" + "|".join(map(re.escape, normed)) + r")\b") if normed else re.compile(r"(?!)")
-
-
 @dataclass(frozen=True)
 class FieldRules:
     fields: tuple[tuple[re.Pattern, tuple[str, ...]], ...]  # (label pattern, profile keys to try)
@@ -140,18 +135,18 @@ class FieldRules:
     @classmethod
     def from_config(cls, apply_cfg: dict) -> "FieldRules":
         fields = tuple(
-            (_words(r["patterns"]), tuple(r["key"]) if isinstance(r["key"], list) else (r["key"],))
+            (words(r["patterns"]), tuple(r["key"]) if isinstance(r["key"], list) else (r["key"],))
             for r in apply_cfg["fields"]
         )
         return cls(
             fields,
-            _words(apply_cfg["decline_words"]),
-            _words(apply_cfg["login_words"]),
-            _words(apply_cfg["consent_words"]),
-            _words(apply_cfg["opt_in_words"]),
+            words(apply_cfg["decline_words"]),
+            words(apply_cfg["login_words"]),
+            words(apply_cfg["consent_words"]),
+            words(apply_cfg["opt_in_words"]),
             bool(apply_cfg["tick_opt_ins"]),
-            _words(apply_cfg["next_words"]),
-            _words(apply_cfg["submit_words"]),
+            words(apply_cfg["next_words"]),
+            words(apply_cfg["submit_words"]),
         )
 
     def is_next(self, name: str) -> bool:

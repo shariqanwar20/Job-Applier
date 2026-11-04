@@ -8,7 +8,7 @@ from urllib.parse import urlsplit, urlunsplit
 from jobapplier.core import clusters
 from jobapplier.core.rules import Rules
 from jobapplier.models import Posting
-from jobapplier.notion.push import ready_rows
+from jobapplier.notion.push import prop_text, ready_rows
 
 __all__ = ["Target", "apply_url", "find_targets"]
 
@@ -49,12 +49,6 @@ def apply_url(url: str) -> str:
     return url
 
 
-def _text(prop: dict) -> str:
-    return "".join(
-        t.get("plain_text") or t["text"]["content"] for t in prop.get("title") or prop.get("rich_text") or []
-    )
-
-
 def _on_board(url: str, rules: Rules) -> bool:
     host = urlsplit(url).hostname or ""
     return not host or any(a in host for a in rules.aggregators)
@@ -87,7 +81,7 @@ def find_targets(
     targets, skipped = [], []
     for page in pages:
         props = page["properties"]
-        jid, company = _text(props.get("Job ID", {})), _text(props.get("Company", {}))
+        jid, company = prop_text(props.get("Job ID", {})), prop_text(props.get("Company", {}))
         members = clusters.members(conn, int(jid[1:])) if re.fullmatch(r"J\d+", jid) else []
         url = _job_url(members, (props.get("Link") or {}).get("url") or "", rules)
         pdf = _pdf(conn, int(jid[1:]), jid, page, root / cfg["tailor"]["output_dir"]) if members else None
@@ -98,6 +92,6 @@ def find_targets(
             skipped.append(f"{jid} ({company}): {why}")
             continue
         description = max((m.description or "" for m in members), key=len)
-        title = _text(props.get("Title", {}))
+        title = prop_text(props.get("Title", {}))
         targets.append(Target(jid, company, title, apply_url(url), pdf, description, page))
     return targets, skipped

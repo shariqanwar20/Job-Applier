@@ -14,6 +14,7 @@ __all__ = [
     "create_database",
     "ensure_tailor_schema",
     "mark_submitted",
+    "prop_text",
     "prune",
     "push",
     "ready_rows",
@@ -235,11 +236,15 @@ def _select(page: dict, name: str) -> str | None:
     return ((page["properties"].get(name) or {}).get("select") or {}).get("name")
 
 
-def row_job_id(page: dict) -> str:
+def prop_text(prop: dict) -> str:
+    """The plain text of a title or rich text property."""
     return "".join(
-        t.get("plain_text") or t["text"]["content"]
-        for t in (page["properties"].get("Job ID") or {}).get("rich_text", [])
+        t.get("plain_text") or t["text"]["content"] for t in prop.get("title") or prop.get("rich_text") or []
     )
+
+
+def row_job_id(page: dict) -> str:
+    return prop_text(page["properties"].get("Job ID") or {})
 
 
 def _query_all(client: Client, ds_id: str, where: dict) -> list[dict]:
@@ -297,10 +302,7 @@ def attach_resume(client: Client, page_id: str, pdf: Path, status: str, notes: s
 
 def mark_submitted(client: Client, page: dict, note: str) -> None:
     """Sets Status Submitted and puts note in front of the row's Notes."""
-    old = "".join(
-        t.get("plain_text") or t["text"]["content"]
-        for t in (page["properties"].get("Notes") or {}).get("rich_text", [])
-    )
+    old = prop_text(page["properties"].get("Notes") or {})
     props = {
         "Status": {"select": {"name": "Submitted"}},
         "Notes": {"rich_text": _text(f"{note}; {old}" if old else note)},
