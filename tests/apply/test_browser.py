@@ -50,7 +50,7 @@ class FakeNext:
         return {**b, **self.page.renamed.get(self.bid, {})}
 
     def evaluate(self, script):
-        return {k: self._now()[k] for k in ("tag", "aria", "labelledby", "text", "value", "title")}
+        return {k: self._now()[k] for k in ("tag", "type", "aria", "labelledby", "text", "value", "title")}
 
     def filter(self, has_text):
         return FakeNext(self.page, self.bid, has_text=has_text)

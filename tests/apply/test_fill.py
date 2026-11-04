@@ -336,6 +336,7 @@ def button(bid, text, visible=True, in_form=True, **names):
     return {
         "id": bid,
         "tag": "button",
+        "type": "button",
         "aria": "",
         "labelledby": "",
         "text": text,
@@ -605,3 +606,12 @@ def test_a_button_name_with_non_ascii_letters_is_refused(names, rules):
 
 def test_accented_latin_letters_are_fine(rules):
     assert rules.is_next(button("1", "Continu\u00e9"))  # e with an accent: still Latin after NFKD
+
+
+def test_an_unnamed_submit_button_counts_as_submit_on_the_page(rules):
+    unnamed = button("2", "", type="submit")
+    bare_input = button("3", "", tag="input", type="submit")
+    for b in (unnamed, bare_input):
+        assert rules.is_submit_button(b)
+        assert next_button([button("1", "Next"), b], rules)[0] is None
+    assert not rules.is_submit_button(button("4", "Next", type="submit"))  # a named step button posts a draft

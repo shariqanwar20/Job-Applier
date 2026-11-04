@@ -70,7 +70,8 @@ _NAME = """el => {
   const by = (el.getAttribute('aria-labelledby') || '').split(/\\s+/).filter(Boolean)
     .map(id => document.getElementById(id)).filter(Boolean).map(n => n.innerText || n.textContent);
   return {
-    tag: el.tagName.toLowerCase(), aria: t(el.getAttribute('aria-label')), labelledby: t(by.join(' ')),
+    tag: el.tagName.toLowerCase(), type: (el.type || '').toLowerCase(),
+    aria: t(el.getAttribute('aria-label')), labelledby: t(by.join(' ')),
     text: t(el.innerText), value: t(el.value), title: t(el.getAttribute('title')),
   };
 }"""
@@ -208,6 +209,8 @@ class FieldRules:
 
     def is_submit_button(self, button: dict) -> bool:
         names = [norm(button[k]) for k in _SOURCES]
+        if button["type"] == "submit" and not any(names):  # Chrome shows such a button as "Submit"
+            return True
         return any(self.submit.search(n) or self.submit_stem.search(n) for n in names)
 
     def is_next(self, button: dict) -> bool:
