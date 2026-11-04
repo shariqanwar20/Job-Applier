@@ -1,6 +1,6 @@
 # JobApplier
 
-Every two hours, JobApplier pulls fresh software developer postings in Canada from FreeHire, Indeed and LinkedIn, drops duplicates and title-filtered noise, ranks what is left (new grad first, then by city), and adds new rows to a Notion database. You review the rows in Notion. Every 30 minutes it also makes a one-page tailored resume PDF for each row you approve and attaches it to the row; `apply` then opens each ready application in Chrome, pre-filled, and you submit it yourself.
+Every two hours, JobApplier pulls fresh software developer postings in Canada from FreeHire, Indeed and LinkedIn, drops duplicates and title-filtered noise, ranks what is left (new grad first, then by city), and adds new rows to a Notion database. You review the rows in Notion. Every 30 minutes it also makes a one-page tailored resume PDF for each row you approve and attaches it to the row; `apply` then opens each ready application in Chrome, where a Haiku agent fills it, and you submit it yourself.
 
 Sources: the FreeHire public API, and LinkedIn and Indeed through [python-jobspy](https://github.com/speedyapply/JobSpy) (list pages only, throttled with a delay between requests).
 
@@ -125,7 +125,7 @@ To try one row, whatever its Decision: `uv run python -m jobapplier tailor --job
 
 ## Apply
 
-`apply` opens each ready row's application page in Chrome and pre-fills it, page by page. **It never clicks Submit or Apply, never creates an account and never types a password.** You check the form and submit it.
+`apply` opens each ready row's application page in Chrome and lets one Haiku agent fill it, page by page. **It never clicks Submit, never creates an account and never types a password.** These rules are in code, not only in the prompt. You check the form and submit it.
 
 1. Copy `profile.example.yaml` to `profile.yaml` (git-ignored) and put your answers in: name, email, phone, location, links, work authorization, start date, relocation, salary and `voluntary_self_id`.
 2. In Notion, approve a row. The PDF appears and Status becomes **Tailored** or **Needs review**.
@@ -138,26 +138,65 @@ To try one row, whatever its Decision: `uv run python -m jobapplier tailor --job
 
    `y` sets Status to **Submitted** and writes "Submitted <date> via <host>" in Notes; `N` leaves the row as it was. Chrome closes after the last answer. Ctrl-C at a prompt asks "Close Chrome? [y/N]"; N goes back to the prompt. `--job J27` opens one row whatever its Status.
 
-Rows with Status Tailored or Reviewed open, at most `apply.max_tabs` (8) per run. The command prints what it opened and what it skipped, and why: a row whose only links are job boards (`rules.aggregator_hosts`; paste the employer's posting into the row's Link and run again), or a row with no tailored PDF on record (the PDF `tailor` made, as recorded in `data/jobs.db`; a row tailored before `apply` existed needs `tailor --job J27` once more). A Lever, Ashby, Breezy or SmartRecruiters job page is turned into its application page; a Greenhouse page holds the form already.
+Rows with Status Tailored or Reviewed open, at most `apply.max_tabs` (8) per run, one after another. The command prints what it opened and what it skipped, and why: a row whose only links are job boards (`rules.aggregator_hosts`; paste the employer's posting into the row's Link and run again), or a row with no tailored PDF on record (the PDF `tailor` made, as recorded in `data/jobs.db`; a row tailored before `apply` existed needs `tailor --job J27` once more). A Lever, Ashby, Breezy or SmartRecruiters job page is turned into its application page; a Greenhouse page holds the form already.
 
-In each tab it uploads the tailored PDF to the resume field first (a site's resume parser overwrites fields), waits `apply.parser_wait_seconds`, then fills the visible fields its rules know (`apply.fields`: each rule maps label words to a `profile.yaml` key, first match wins). It only fills an empty field, except name, email and phone, which it sets to your profile's. A label with a word from `apply.skip_words` (contact name, contact person, emergency, manager, extension, reference, referral) is never filled, so another person's name or phone stays empty; your own "Contact email" or "Contact number" is filled. A free-text "which cities" relocation question gets `relocation.cities`; a yes/no one gets `relocation.willing`. Demographic questions get the "prefer not to say" option when `voluntary_self_id` is `decline`. It ticks a checkbox only when its label has a consent word (`apply.consent_words`), a policy word (`apply.policy_words`: terms, privacy, policy, accurate, read, ...) and no opt-in word (`apply.opt_in_words`: receive, contacted, future, similar, roles, network, share, email, newsletter, ...). So "I have read and agree to the privacy policy" is ticked and "I agree to hear about similar openings" is not. A required box left unticked stops the walk and is listed for you. `apply.tick_opt_ins: true` ticks every box with a consent word. It leaves hidden fields and honeypots alone: a field hidden by CSS (also through a parent), moved off the page, clipped to nothing, or inside `aria-hidden` is not filled.
+### How a tab is filled
 
-Multi-page forms: after filling a page, it clicks a button in the form whose visible text starts with a phrase from `apply.next_words` (Next, Continue, Proceed, Save & Continue) and has at most `apply.next_max_extra_words` (5) more words, none of them from `apply.next_deny_words` (so "Next: Experience" and "Continue to step 3" are clicked; "Next month" and "Continue reading" are not). It then waits `apply.next_wait_seconds` and fills the next page, up to `apply.max_pages` (8). A button is never clicked when any source of its name (aria-label, labelled-by text, text, value, title) has a word from `apply.submit_words` (Submit, Apply, Send, Finish, Confirm, ...), a word starting with one of `apply.submit_stems` (submission, finalize, confirmation, post, ...), a non-Latin look-alike letter, or a sign-in word ("Continue with Google"). The name is read again right before the click, and the click is bound to the next text so Chrome checks it once more. It stops and leaves the page to you when:
+Each application runs its own loop in its own tab, with no shared conversation. Each step:
 
-- any visible button on the page is a submit button, including an unnamed one (the last step);
-- a required field is still empty;
-- a sign-in or sign-up page appears;
-- there is no next button;
-- the page did not change after the click (usually a validation error on the page);
-- the page broke during the walk (it navigated away or closed).
+1. Python reads the page into a compact JSON snapshot: URL, title, headings, error messages, and every visible field, button and link with a ref. Fields from same-origin frames are included; a cross-origin frame is only named. The snapshot is cut at `apply.agent.max_snapshot_chars`. Hidden fields and honeypots are left out: a field hidden by CSS (also through a parent), moved off the page, clipped to nothing, or inside `aria-hidden`.
+2. It asks `llm.models.apply` (Haiku) through `claude -p`. The call loads no tools or skills. The prompt holds your `profile.yaml`, the text of your `resume/master.tex` lines, the job (title, company, the first `apply.agent.description_chars` characters of the description), the steps so far with every refusal, and the snapshot. The model returns actions (`fill`, `select`, `check`, `uncheck`, `upload`, `click` on a ref), a status and a note. The prompt tells it to:
+   - start the application on a job page;
+   - upload the resume first;
+   - answer free-text questions briefly from your resume and profile, never inventing experience;
+   - decline the voluntary self-identification questions;
+   - tick required consent boxes but never opt-ins;
+   - click Next;
+   - stop when only submitting is left, and at a sign-in, account or email-verification step.
+3. Python does each action after reading the element again. Code refuses:
+   - any typing or ticking in a password field or in a form that has one;
+   - an upload of anything but the tailored PDF (the model never names a file);
+   - a click on a control when any source of its name (aria-label, labelled-by text, text, value, title) has a word starting with one of `apply.submit_stems` (submit, send, finish, final, complete, confirm, done, post), a word from `apply.sign_in_words` (sign in, create account, register, Continue with Google, Apply with LinkedIn), or a non-Latin look-alike letter;
+   - an unnamed control;
+   - an `apply.apply_words` control ("Apply", "Apply now", "Start application") once anything is filled, so the job page's start button works but a form's final Apply never does;
+   - a link, or a button that submits its form, unless its text starts with an `apply.next_words` phrase (Next, Continue, Save & Continue) with at most `apply.next_max_extra_words` more words, none of them in `apply.next_deny_words`.
 
-A note at the top of the page where it stopped says how many fields it filled, why it stopped and which required fields are still empty; click the note to close it. Use the form's Back button to check the earlier pages.
+   The click is bound to the text it was checked with, so Chrome checks the name once more. There is no Enter key, no form submit and no keyboard or mouse call in the apply code; a test checks the source for them. A refusal goes back to the model in the next step.
+4. It waits for the page to settle (`apply.agent.settle_seconds`, plus `apply.parser_wait_seconds` after the upload) and takes the next snapshot.
+
+The loop stops when:
+
+- the model says the form is ready to submit, needs an account, or needs you;
+- a password field appears;
+- it reaches `apply.agent.max_steps` (25) steps;
+- the page is the same for `apply.agent.unchanged_steps` (3) snapshots, usually a validation error;
+- its calls cost `apply.agent.max_cost_usd` ($0.50);
+- the model call fails;
+- the page breaks.
+
+A note at the top of the page then gives:
+
+- why it stopped and the model's note;
+- what it filled, and whether the resume was uploaded;
+- **every free-text answer the model wrote**, for you to check;
+- the required fields still empty.
+
+Click the note to close it. Use the form's Back button to check the earlier pages. The terminal line for each row says the same in short, with the cost.
+
+### Debugging
+
+Each application leaves two files in `logs/`:
+
+- `apply-<JobID>.json`, a trace. For every step it holds the snapshot's URL and element count, the actions the model asked for, what was done, refused or failed, the status, the note and the cost. It has the model's answers but never your profile or resume.
+- `apply-<JobID>-<step>.png`, a full-page screenshot of the page where the loop stopped.
+
+The log also has one line per step, with its actions and cost; answers longer than 80 characters are shown by length only. `apply --no-prompt` asks nothing and marks nothing Submitted, and it closes Chrome once every loop has finished. Use it to try the agent on a row.
 
 The scheduled `run` never opens a browser. When rows become ready, it sends one notification: "N applications ready: run `uv run python -m jobapplier apply`".
 
 ### Logins
 
-A page with a password field, or a URL or title with `apply.login_words` (sign in, create account, ...), is not filled; its note says to sign in yourself. Chrome uses its own profile in `data/browser-profile`, kept between runs, so a sign-in you do there stays.
+At a sign-in or account step (a password field, or the model says so), the loop stops and its note says to sign in yourself. Chrome uses its own profile in `data/browser-profile`, kept between runs, so a sign-in you do there stays. Run `apply` again after signing in.
 
 - To install the 1Password extension in that profile once, run `apply` with any row and open the Chrome Web Store in a tab.
 - On Workday-style sign-in or sign-up pages, use 1Password's autofill or password generator yourself.
