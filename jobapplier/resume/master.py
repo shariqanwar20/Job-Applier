@@ -103,22 +103,19 @@ def _line(entry: dict, items_by_id: dict[str, Item], lines: list[str]) -> str:
 def render(tex: str, items_by_id: dict[str, Item], plan: list[dict]) -> str:
     """tex with each list of item lines rebuilt from plan, in plan order; other lines stay byte-for-byte.
 
-    plan entries are {"id"}, {"id", "text"} or {"new", "source"}, with text already LaTeX. An entry
-    goes in the list its id (or source) is in. Required items the plan leaves out stay where they were.
+    plan entries are {"id"}, {"id", "text"} or {"new", "source"}, with text already LaTeX and each id
+    at most once (tailor makes sure). An entry goes in the list its id (or source) is in. Required items
+    the plan leaves out stay where they were.
     """
     lines = tex.splitlines(keepends=True)
     out_of: dict[int, list[str]] = {}  # first line number of a run -> its new lines
     skip = set()
     for run in _runs(list(items_by_id.values())):
         ids = {i.id for i in run}
-        entries, used = [], set()
-        for e in plan:
-            anchor = e.get("id") or e.get("source")
-            if anchor in ids and not ("new" not in e and anchor in used):
-                entries.append(e)
-                used.add(anchor)
+        entries = [e for e in plan if (e["source"] if "new" in e else e["id"]) in ids]
+        printed = {e["id"] for e in entries if "new" not in e}  # an added line never stands in for its source
         for pos, item in enumerate(run):
-            if item.required and item.id not in used:
+            if item.required and item.id not in printed:
                 entries.insert(min(pos, len(entries)), {"id": item.id})
         if not entries:  # an empty itemize does not compile
             entries = [{"id": run[0].id}]

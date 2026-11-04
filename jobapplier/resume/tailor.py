@@ -1,5 +1,7 @@
 """One LLM call that picks, orders and rewords master lines for a job; every changed line is checked."""
 
+import re
+
 from jobapplier.resume.grounding import escape, grounding_problems, style_problems
 from jobapplier.resume.master import Item, plain
 
@@ -86,7 +88,9 @@ def _check(answer: dict, by_id: dict[str, Item], cfg: dict) -> tuple[list[dict],
         if text is None or ("new" not in e and text == master):
             plan.append({"id": anchor})
             continue
-        if why := grounding_problems(text, master, cfg["tailor"]):
+        if not re.search(r"[A-Za-z]", text):
+            problems.append(f"{anchor}: the new text has no words; kept the master line")
+        elif why := grounding_problems(text, master, cfg["tailor"]):
             problems.append(f"{anchor}: {'; '.join(why)}; kept the master line")
         elif why := style_problems(text, cfg["tailor"]):
             style.append(f"{anchor}: {'; '.join(why)}")
@@ -100,7 +104,7 @@ def _check(answer: dict, by_id: dict[str, Item], cfg: dict) -> tuple[list[dict],
         plan.append({"id": anchor})
     seen: set[str] = set()
     unique = []
-    for e in plan:  # a reverted added line can repeat its source
+    for e in plan:  # the one dedupe; a reverted added line can repeat its source
         if "id" in e and e["id"] in seen:
             continue
         seen.add(e.get("id", ""))

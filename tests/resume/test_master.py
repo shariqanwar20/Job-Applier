@@ -108,3 +108,13 @@ def test_render_keeps_one_item_in_a_list_the_plan_empties():
 def test_render_puts_an_item_back_in_its_own_list():
     out = render(EXAMPLE, by_id(), [{"id": "exp2.b2"}, {"id": "exp1.b2"}])
     assert out.index("Cut page load") < out.index("Sample Retail Co") < out.index("on-call")
+
+
+def test_an_added_line_before_its_required_source_keeps_the_source():
+    out = render(EXAMPLE, by_id(), [{"new": "Wrote a Go API", "source": "exp1.b1"}, {"id": "exp1.b1"}])
+    assert "Wrote a Go API" in out and "Built a REST API in Go that served 3 clinics" in out
+
+
+def test_an_added_line_alone_does_not_replace_its_required_source():
+    out = render(EXAMPLE, by_id(), [{"new": "Wrote a Go API", "source": "exp1.b1"}])
+    assert "Wrote a Go API" in out and "Built a REST API in Go that served 3 clinics" in out

@@ -107,3 +107,17 @@ def test_a_second_style_failure_keeps_the_master_line(config):
 def test_text_equal_to_the_master_line_counts_as_unchanged(config):
     llm = FakeLlm(answer({"id": "exp1.b2", "text": "Cut page load time by 40% with Redis caching"}))
     assert tailor(ITEMS, JOB, config, llm) == ([{"id": "exp1.b2"}], [])
+
+
+def test_an_added_line_before_its_source_keeps_both(config):
+    llm = FakeLlm(answer({"new": "Wrote a REST API in Go", "source": "exp1.b1"}, {"id": "exp1.b1"}))
+    plan, problems = tailor(ITEMS, JOB, config, llm)
+    assert plan == [{"new": "Wrote a REST API in Go", "source": "exp1.b1"}, {"id": "exp1.b1"}]
+    assert problems == []
+
+
+def test_empty_or_wordless_text_keeps_the_master_line(config):
+    llm = FakeLlm(answer({"id": "skills.lang", "text": ""}, {"new": " !? ", "source": "exp1.b2"}))
+    plan, problems = tailor(ITEMS, JOB, config, llm)
+    assert plan == [{"id": "skills.lang"}, {"id": "exp1.b2"}]
+    assert len(problems) == 2 and problems[0].startswith("skills.lang:") and "no words" in problems[0]
