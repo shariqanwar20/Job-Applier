@@ -66,12 +66,20 @@ class ClickRefusedError(Exception):
     pass
 
 
-def _click_next(button, rules: FieldRules, timeout_ms: float) -> None:
-    """The only click in the apply code. The name is read again right before the click, so a button that
-    has turned into Submit (or a sign-in) is refused, never clicked."""
-    name = button_name(button)
-    if not rules.is_next(name):
-        raise ClickRefusedError(f"not a next-step button: {name!r}")
+def _click_next(page, button_id: str, rules: FieldRules, timeout_ms: float) -> None:
+    """The only click in the apply code. The name is read again right before the click, and the click is
+    bound to the next text on screen, which Playwright checks again on every retry: a button that has
+    turned into Submit (or a sign-in) is refused, never clicked."""
+    selector = f'[data-jobapplier-button="{button_id}"]'
+    button = page.locator(selector)
+    names = button_name(button)
+    if not rules.is_next(names):
+        raise ClickRefusedError(f"not a next-step button: {names['text'] or names['value']!r}")
+    if names["tag"] == "input":  # its text is its value
+        value = names["value"].replace("\\", "\\\\").replace('"', '\\"')
+        button = page.locator(f'{selector}[value="{value}" i]')
+    else:
+        button = button.filter(has_text=rules.next_text)
     button.click(timeout=timeout_ms)
 
 
@@ -86,7 +94,11 @@ def _settle(page, seconds: float) -> None:
 
 def _signature(page, fields: list[dict], buttons: list[dict]) -> tuple:
     """What the page shows; the same before and after a next click means the form refused the step."""
-    return page.url, [(f["type"], f["name"], f["label"]) for f in fields], [b["name"] for b in buttons]
+    return (
+        page.url,
+        [(f["type"], f["name"], f["label"]) for f in fields],
+        [(b["text"], b["value"]) for b in buttons],
+    )
 
 
 def prepare(page, target: Target, values: dict, cfg: dict, rules: FieldRules) -> dict:
@@ -126,7 +138,7 @@ def prepare(page, target: Target, values: dict, cfg: dict, rules: FieldRules) ->
             break
         before = _signature(page, after, buttons)
         try:
-            _click_next(page.locator(f'[data-jobapplier-button="{button}"]'), rules, timeout)
+            _click_next(page, button, rules, timeout)
         except ClickRefusedError as exc:
             stop = f"{exc}; continue yourself."
             break

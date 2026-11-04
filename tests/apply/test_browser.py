@@ -1,3 +1,4 @@
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,7 +10,7 @@ from jobapplier.apply import browser
 from jobapplier.apply.browser import ClickRefusedError, chrome, prepare
 from jobapplier.apply.fill import FieldRules
 from jobapplier.apply.targets import Target
-from tests.apply.test_fill import SHOWN, VALUES, field
+from tests.apply.test_fill import SHOWN, VALUES, button, field
 
 
 class FakeLocator:
@@ -38,17 +39,31 @@ class FakeLocator:
 
 
 class FakeNext:
-    """The page's next button as a locator sees it: its name is read from the current screen."""
+    """A next button as a locator sees it, read from the current screen. A click must be bound to the
+    name (filter has_text, or a value selector for an input), as the real code does."""
 
-    def __init__(self, page, bid):
-        self.page, self.bid = page, bid
+    def __init__(self, page, bid, has_text=None, value=None):
+        self.page, self.bid, self.has_text, self.value = page, bid, has_text, value
+
+    def _now(self):
+        b = next(b for b in self.page.screen["buttons"] if b["id"] == self.bid)
+        return {**b, **self.page.renamed.get(self.bid, {})}
 
     def evaluate(self, script):
-        name = next(b["name"] for b in self.page.screen["buttons"] if b["id"] == self.bid)
-        return self.page.renamed.get(self.bid, name)
+        return {k: self._now()[k] for k in ("tag", "aria", "labelledby", "text", "value", "title")}
+
+    def filter(self, has_text):
+        return FakeNext(self.page, self.bid, has_text=has_text)
 
     def click(self, timeout):
-        self.page.clicks.append(self.evaluate(""))
+        now = self._now()
+        assert self.has_text or self.value, "an unbound click"
+        bound = (
+            self.has_text.search(now["text"]) if self.has_text else now["value"].lower() == self.value.lower()
+        )
+        if not bound:
+            raise PlaywrightError(f"Timeout {timeout}ms exceeded: no element matches")
+        self.page.clicks.append(now["text"] or now["value"])
         if not self.page.stuck:
             self.page.at += 1
 
@@ -64,7 +79,7 @@ class FakePage:
             s["reads"] = list(s["reads"])
         self._title, self.idle, self.broken, self.stuck = title, idle, set(broken), stuck
         self.url, self.done, self.banners, self.waits, self.clicks, self.at = "", [], [], [], [], 0
-        self.renamed = {}  # button id -> the name it has by the time it would be clicked
+        self.renamed = {}  # button id -> name sources it has by the time it would be clicked
         self.types = {}  # field id -> its type on the page, as the last read saw it
 
     @property
@@ -97,7 +112,10 @@ class FakePage:
 
     def locator(self, selector):
         bid = selector.split('"')[1]
-        return FakeNext(self, bid) if "data-jobapplier-button" in selector else FakeLocator(self, bid)
+        if "data-jobapplier-button" not in selector:
+            return FakeLocator(self, bid)
+        value = re.search(r'\[value="(.*?)" i\]', selector)
+        return FakeNext(self, bid, value=value[1] if value else None)
 
 
 @pytest.fixture
@@ -179,40 +197,44 @@ def test_chrome_opens_the_installed_chrome_with_a_kept_profile(monkeypatch, tmp_
     assert closed == [1] and Path(tmp_path / "profile").is_dir()
 
 
-class FakeButton:
-    def __init__(self, name):
-        self.name, self.clicks = name, []
-
-    def evaluate(self, script):
-        return self.name
-
-    def click(self, timeout):
-        self.clicks.append(self.name)
-
-
 @pytest.fixture
 def field_rules(config):
     return FieldRules.from_config(config["apply"])
 
 
+def one_button(**names):
+    return FakePage(screens=[screen([], btn("b1", **names)), screen([])])
+
+
 @pytest.mark.parametrize(
-    "name", ["Submit application", "Continue and submit", "Continue with Google", "Back"]
+    "names",
+    [
+        {"text": "Submit application"},
+        {"text": "Continue and submit"},
+        {"text": "Continue with Google"},
+        {"text": "Back"},
+        {"text": "Submit application", "aria": "Next"},
+        {"tag": "input", "text": "", "aria": "Next", "value": "Submit"},
+    ],
 )
-def test_click_next_refuses_anything_but_a_next_button(name, field_rules):
-    b = FakeButton(name)
+def test_click_next_refuses_anything_but_a_next_button(names, field_rules):
+    page = one_button(**names)
     with pytest.raises(ClickRefusedError):
-        browser._click_next(b, field_rules, 1000)
-    assert b.clicks == []
+        browser._click_next(page, "b1", field_rules, 1000)
+    assert page.clicks == []
 
 
-def test_click_next_clicks_a_next_button(field_rules):
-    b = FakeButton("Save and Continue")
-    browser._click_next(b, field_rules, 1000)
-    assert b.clicks == ["Save and Continue"]
+def test_click_next_clicks_a_next_button_bound_to_its_name(field_rules):
+    page = one_button(text="Save and Continue")
+    browser._click_next(page, "b1", field_rules, 1000)
+    assert page.clicks == ["Save and Continue"]
+    page = one_button(tag="input", text="", value="Next")
+    browser._click_next(page, "b1", field_rules, 1000)
+    assert page.clicks == ["Next"]
 
 
-def btn(bid, name):
-    return {"id": bid, "name": name, **SHOWN}
+def btn(bid, text="", **names):
+    return {**button(bid, text, **names), **SHOWN}
 
 
 def screen(fields, *buttons, title="Apply"):
@@ -288,7 +310,7 @@ def test_max_pages_stops_the_walk(setup):
 def test_a_next_button_that_turned_into_submit_is_not_clicked(setup):
     target, cfg, rules = setup
     page = FakePage(screens=THREE_PAGES)
-    page.renamed = {"b1": "Submit"}
+    page.renamed = {"b1": {"text": "Submit"}}
     result = prepare(page, target, VALUES, cfg, rules)
     assert page.clicks == [] and result["pages"] == 1
     assert any("not a next-step button" in line for line in page.banners[0][1])

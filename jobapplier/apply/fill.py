@@ -63,7 +63,17 @@ _FACTS = """
     };
   };
 """
-_NAME = "el => (el.getAttribute('aria-label') || el.innerText || el.value || '').replace(/\\s+/g, ' ').trim()"
+# Every source of a button's name, apart: the click is refused if any has a submit or sign-in word.
+_NAME = """el => {
+  const t = s => (s || '').replace(/\\s+/g, ' ').trim();
+  const by = (el.getAttribute('aria-labelledby') || '').split(/\\s+/).filter(Boolean)
+    .map(id => document.getElementById(id)).filter(Boolean).map(n => n.innerText || n.textContent);
+  return {
+    tag: el.tagName.toLowerCase(), aria: t(el.getAttribute('aria-label')), labelledby: t(by.join(' ')),
+    text: t(el.innerText), value: t(el.value), title: t(el.getAttribute('title')),
+  };
+}"""
+_SOURCES = ("aria", "labelledby", "text", "value", "title")
 # Marks every field with data-jobapplier so it is filled through a locator, never by position.
 _READ = (
     "() => {"
@@ -119,7 +129,7 @@ _BUTTONS = (
     .forEach((el, i) => {{
       if (el.tagName === 'A') return;
       el.setAttribute('data-jobapplier-button', String(i));
-      out.push({{id: String(i), name: name(el), ...facts(el)}});
+      out.push({{id: String(i), ...name(el), ...facts(el)}});
     }});
   return out;
 }}"""
@@ -135,8 +145,10 @@ class FieldRules:
     consent: re.Pattern
     opt_in: re.Pattern
     tick_opt_ins: bool
-    next_step: re.Pattern
+    next_names: frozenset[str]  # a next button's whole visible text, normalized
+    next_text: re.Pattern  # the same, for binding the click to the text on screen
     submit: re.Pattern
+    sign_in_button: re.Pattern
 
     @classmethod
     def from_config(cls, apply_cfg: dict) -> "FieldRules":
@@ -156,14 +168,29 @@ class FieldRules:
             words(apply_cfg["consent_words"]),
             words(apply_cfg["opt_in_words"]),
             bool(apply_cfg["tick_opt_ins"]),
-            words(apply_cfg["next_words"]),
+            frozenset(map(norm, apply_cfg["next_words"])),
+            re.compile(
+                r"^\s*("
+                + "|".join(r"\s+".join(map(re.escape, w.split())) for w in apply_cfg["next_words"])
+                + r")\s*$",
+                re.IGNORECASE,
+            ),
             words(apply_cfg["submit_words"]),
+            words(apply_cfg["sign_in_button_words"]),
         )
 
-    def is_next(self, name: str) -> bool:
-        """A next-step button: a next word, and no submit or sign-in word."""
-        n = norm(name)
-        return bool(self.next_step.search(n)) and not (self.submit.search(n) or self.login.search(n))
+    def is_submit_button(self, button: dict) -> bool:
+        return any(self.submit.search(norm(button[k])) for k in _SOURCES)
+
+    def is_next(self, button: dict) -> bool:
+        """A next-step button: its whole visible text is a next word, and no source of its name has a submit
+        or sign-in word."""
+        names = [norm(button[k]) for k in _SOURCES]
+        if self.is_submit_button(button) or any(
+            self.login.search(n) or self.sign_in_button.search(n) for n in names
+        ):
+            return False
+        return norm(button["value"] if button["tag"] == "input" else button["text"]) in self.next_names
 
 
 def group_radios(raw: list[dict]) -> list[dict]:
@@ -330,17 +357,17 @@ def read_buttons(page) -> list[dict]:
     return [{**b, "visible": _visible(b)} for b in page.evaluate(_BUTTONS)]
 
 
-def button_name(button) -> str:
-    """The name of the button a locator points at, read now."""
+def button_name(button) -> dict:
+    """The name sources of the button a locator points at, read now."""
     return button.evaluate(_NAME)
 
 
 def next_button(buttons: list[dict], rules: FieldRules) -> tuple[str | None, str]:
     """(id of the visible next-step button, "") or (None, why the owner takes over here)."""
-    shown = [b for b in buttons if b["visible"] and norm(b["name"])]
-    if nxt := [b for b in shown if rules.is_next(b["name"])]:
+    shown = [b for b in buttons if b["visible"]]
+    if nxt := [b for b in shown if rules.is_next(b)]:
         return nxt[0]["id"], ""
-    if any(rules.submit.search(norm(b["name"])) for b in shown):
+    if any(rules.is_submit_button(b) for b in shown):
         return None, "This is the last step: check every page, then submit yourself."
     return None, "No Next button found: continue yourself."
 

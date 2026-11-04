@@ -90,16 +90,18 @@ apply:  # `apply` opens ready rows in Chrome and pre-fills the form; you check i
   parser_wait_seconds: 3           # after the resume upload, for the site's resume parser to fill fields
   field_timeout_seconds: 3         # per field; a field that takes longer is left for you
   # A page whose URL or title has one of these (whole words), or that shows a password field, is left for you.
-  # "continue with" is a sign-in button (Continue with Google), never a step of the form.
-  login_words: [sign in, signin, log in, login, create account, create an account, sign up, signup, register, continue with]
-  # Multi-page forms: after filling a page, apply clicks the button named with a next_words word, unless the
-  # name also has a submit_words or login_words word, then fills the next page, up to max_pages pages.
-  # It stops (and leaves the page to you) at a submit button, a required field still empty, a sign-in page,
-  # no next button, or a page that did not change after the click (a validation error).
+  login_words: [sign in, signin, log in, login, create account, create an account, sign up, signup, register]
+  # Multi-page forms: after filling a page, apply clicks the form's button whose visible text is exactly one
+  # of next_words (Next, Save and Continue; not "Next month"), when no source of its name (aria-label,
+  # labelled-by text, text, value, title) has a submit_words, login_words or sign_in_button_words word. Then
+  # it fills the next page, up to max_pages pages. It stops (and leaves the page to you) when any visible
+  # button on the page has a submit word, a required field is still empty, a sign-in page appears, there is
+  # no next button, or the page did not change after the click (a validation error).
   max_pages: 8
   next_wait_seconds: 2             # after clicking next, for the new page to draw
-  next_words: [next, continue, save and continue, proceed]
+  next_words: [next, next step, continue, save and continue, proceed, save and next]
   submit_words: [submit, apply, send, finish, complete, confirm, done, review and submit, submit application]
+  sign_in_button_words: [continue with, sign in with, log in with]  # "Continue with Google" signs you in
   # A checkbox whose label has one of consent_words is ticked (terms, privacy, "the above is accurate").
   # One with an opt_in_words word is left for you, even when it also has a consent word, unless tick_opt_ins.
   consent_words: [consent, agree, acknowledge, privacy, terms, certify, accurate, true and complete, authorize]

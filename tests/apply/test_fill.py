@@ -235,6 +235,7 @@ def test_login_pages_are_found_by_password_field_url_or_title(rules):
     assert is_login("https://acme.wd3.myworkdayjobs.com/en-US/login", "Workday", [], words)
     assert is_login("https://x.example/a", "Create Account | Acme", [], words)
     assert not is_login("https://jobs.lever.co/acme/1/apply", "Acme - Software Engineer", [field()], words)
+    assert not is_login("https://x.example/a", "Continue with your application", [field()], words)
 
 
 APPLY_CODE = [
@@ -307,8 +308,21 @@ def test_an_unticked_required_checkbox_is_missing():
     assert missing_required([{**box, "checked": True}]) == []
 
 
-def button(bid, name, visible=True):
-    return {"id": bid, "name": name, "visible": visible}
+def button(bid, text, visible=True, in_form=True, **names):
+    """A button as the page reports it: each source of its name apart (aria-label, aria-labelledby text,
+    visible text, value, title)."""
+    return {
+        "id": bid,
+        "tag": "button",
+        "aria": "",
+        "labelledby": "",
+        "text": text,
+        "value": "",
+        "title": "",
+        "in_form": in_form,
+        "visible": visible,
+        **names,
+    }
 
 
 def test_next_button_is_a_next_word_without_a_submit_word(rules):
@@ -416,3 +430,37 @@ def test_the_only_check_is_in_fill_page_for_a_planned_radio_or_consent_box():
         ("fill.py", "fill_page", "check"),
         ("fill.py", "upload_file", "set_input_files"),
     ]
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        {"text": "Next month"},
+        {"text": "Next slide"},
+        {"text": "Show next 10 jobs"},
+        {"text": "Continue reading"},
+        {"text": "Proceed to payment"},
+        {"text": "", "aria": "Next"},  # the next word must be in the visible text
+        {"text": "Submit application", "aria": "Next"},
+        {"tag": "input", "text": "", "aria": "Next", "value": "Submit"},
+        {"text": "Next", "value": "submit"},
+        {"text": "Next", "title": "Send application"},
+        {"text": "Next", "labelledby": "Finish and apply"},
+        {"text": "Continue with Google"},
+    ],
+)
+def test_is_next_needs_an_exact_visible_next_name_and_no_submit_or_sign_in_word_anywhere(names, rules):
+    assert not rules.is_next(button("1", **{"text": "Next", **names}))
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        {"text": "Next"},
+        {"text": "  Save and Continue "},
+        {"text": "Next step", "aria": "Go to the next step"},
+        {"tag": "input", "text": "", "value": "Continue"},
+    ],
+)
+def test_is_next_accepts_a_plain_next_button(names, rules):
+    assert rules.is_next(button("1", **names))
