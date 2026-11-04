@@ -80,8 +80,10 @@ def run_apply(
     field_rules = FieldRules.from_config(cfg["apply"])
     with browser() as context:
         for n, t in enumerate(targets):
-            # A persistent context opens with one blank tab; the first target goes there.
-            page = context.pages[0] if n == 0 and context.pages else context.new_page()
+            # A persistent context opens with one blank tab; the first target goes there. A tab Chrome
+            # restored from last time is the owner's: it gets a new tab instead.
+            blank = n == 0 and context.pages and context.pages[0].url in ("", "about:blank")
+            page = context.pages[0] if blank else context.new_page()
             result["opened"] += 1
             try:
                 say(_opened_line(t, prepare(page, t, values, cfg, field_rules)))

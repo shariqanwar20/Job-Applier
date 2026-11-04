@@ -243,3 +243,11 @@ def test_ctrl_c_at_a_prompt_asks_before_closing_chrome(home):
     assert asked[-1] == "Close Chrome? [y/N] " and len(asked) == 3
     assert result["submitted"] == 0 and n.rows["p1"]["Status"] == {"select": {"name": "Tailored"}}
     assert said[-1] == "Closing Chrome; rows not answered keep their Status."
+
+
+def test_a_restored_tab_is_left_alone_and_a_new_one_opened(home):
+    restored = FakePage([[]])
+    restored.url = "https://mail.example.com/inbox"
+    pages = [restored, FakePage([[field("1", "Email")]]), FakePage([[field("1", "Email")]])]
+    _, ctx, _, _ = run(home, ["", "n", "n"], pages=pages)
+    assert restored.url == "https://mail.example.com/inbox" and ctx.made == 2
