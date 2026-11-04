@@ -224,20 +224,25 @@ def ensure_tailor_schema(client: Client, ds_id: str) -> None:
         call(client.data_sources.update, data_source_id=ds_id, properties=add)
 
 
+def _decision(page: dict) -> str | None:
+    return ((page["properties"].get("Decision") or {}).get("select") or {}).get("name")
+
+
 def approved_rows(client: Client, ds_id: str, job_id: str | None = None) -> list[dict]:
     """Pages with Decision Approve or Approve + review and Status New; with job_id, that one row as it is."""
     if job_id:
         where = {"property": "Job ID", "rich_text": {"equals": job_id}}
     else:
-        decided = [{"property": "Decision", "select": {"equals": d}} for d in _APPROVED]
-        where = {"and": [{"or": decided}, {"property": "Status", "select": {"equals": "New"}}]}
+        # Decision is matched here, not in the filter: a live select "equals Approve" filter returned no rows
+        # while the rows had that option (2026-11-04); Status "equals New" worked.
+        where = {"property": "Status", "select": {"equals": "New"}}
     pages, cursor = [], None
     while True:
         more = {"start_cursor": cursor} if cursor else {}
         r = call(client.data_sources.query, data_source_id=ds_id, filter=where, page_size=100, **more)
         pages += r["results"]
         if not r.get("has_more"):
-            return pages
+            return pages if job_id else [p for p in pages if _decision(p) in _APPROVED]
         cursor = r["next_cursor"]
 
 

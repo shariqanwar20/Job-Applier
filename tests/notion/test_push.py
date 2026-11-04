@@ -416,10 +416,18 @@ def test_approved_rows_are_approve_or_approve_review_and_still_new():
     assert [p["id"] for p in approved_rows(n, "ds1", "J3")] == ["p3"]  # one row, whatever its Decision
 
 
-def test_approved_rows_follow_pagination():
+def _decided(page_id: str, decision: str) -> dict:
+    return {"id": page_id, "properties": {"Decision": {"select": {"name": decision}}}}
+
+
+def test_approved_rows_follow_pagination_and_keep_only_approved_decisions():
     pages = [
-        {"results": [{"id": "p1"}], "has_more": True, "next_cursor": "c1"},
-        {"results": [{"id": "p2"}], "has_more": False, "next_cursor": None},
+        {
+            "results": [_decided("p1", "Approve"), _decided("p9", "Skip")],
+            "has_more": True,
+            "next_cursor": "c1",
+        },
+        {"results": [_decided("p2", "Approve + review")], "has_more": False, "next_cursor": None},
     ]
     seen = []
     n = FakeNotion()
