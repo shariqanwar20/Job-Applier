@@ -54,11 +54,24 @@ The city lists are tiers, best first; remote and everything else rank after the 
 ## What gets dropped
 
 - Recruiter and staffing postings: the FreeHire query asks for `via_recruiter=false` (`sources.freehire.via_recruiter`), a posting whose FreeHire company type is in `rules.blocked_company_types` (default `outstaff`, `agency`) is dropped, and so is one whose company name contains a word or phrase from `rules.blocked_companies` (a seeded list of staffing firms; whole words, so `dice` does not match "Dicey Labs" but does match "Dice Health").
-- Non-software "programmer" roles: titles with a word in `rules.exclude` such as `cnc`, `welding` or `plc`.
+- Non-software "programmer" and "developer" roles: titles with a word in `rules.exclude` such as `cnc`, `welding`, `plc`, `cad`, `instructor` or `job developer`.
+- Generic recruiter words in a company name (`recruiting`, `recruitment`, `staffing`, `consultancy`, `talent`) are in `rules.blocked_companies` too, so a small agency that is not on the list by name still goes.
 
 Lists replace, so to block one more company, copy the whole `blocked_companies` list from `config.default.yaml` into your `config.yaml` and add to it. To let a company through, copy the list without it.
 
+The same employer under different spellings ("TD", "TD Bank Group", "The Toronto-Dominion Bank (Canada)") is one row. Discover drops any `(...)` text and the words in `rules.company_noise` (`inc`, `group`, `bank`, `canada`, `the`, `du`, ...) from the company name, then looks what is left up in `rules.company_aliases` (normalized name to the name to compare as, e.g. `aws: amazon`). `company_noise` is a list, so it replaces like the others: copy it into your `config.yaml` to change it. `company_aliases` is a map, so your own entries are added to the defaults:
+
+```yaml
+rules:
+  company_aliases:
+    acme labs: acme
+```
+
 LinkedIn and Indeed answering 429 (rate limited) is retried once after `retry_after_429_seconds` (default 120); a second 429 stops that source for the run.
+
+## Pruning
+
+Each run also looks at rows it already pushed. A row that today's rules would filter, or that is a repeat of an earlier row for the same employer and title (first seen within 7 days of it), is set to Decision `Skip` with a Flags value of `Filtered` or `Duplicate`, but only while its Decision is still `New`. A row you have decided on is left alone. Skipped rows drop out of the Inbox view, and nothing is deleted.
 
 ## Run once by hand
 
