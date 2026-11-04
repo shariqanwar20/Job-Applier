@@ -1,0 +1,297 @@
+"""One Haiku agent per application, in that application's tab. Python reads the page, the model picks the
+next actions, and page.act does them under guards in code. The owner submits; this code never does.
+
+Each application is its own loop with no shared conversation: every call gets the profile, resume, job,
+the steps so far (refusals included) and the page now.
+"""
+
+import hashlib
+import json
+import logging
+from contextlib import suppress
+from pathlib import Path
+
+from playwright.sync_api import Error as PlaywrightError
+
+from jobapplier.apply.browser import LOGIN_NOTE, banner
+from jobapplier.apply.page import ClickRules, RefusedError, Snapshot, act, read
+from jobapplier.apply.targets import Target
+from jobapplier.llm import LlmError
+from jobapplier.resume.master import Item, plain
+
+__all__ = ["describe", "resume_text", "run_application"]
+
+_log = logging.getLogger("jobapplier")
+_FIELD_OPS = frozenset({"fill", "select", "check", "uncheck", "upload"})
+_LOG_VALUE_MAX = 80  # longer values are free-text answers: the log gets their length only
+_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "actions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "op": {
+                        "type": "string",
+                        "enum": ["fill", "select", "check", "uncheck", "upload", "click"],
+                    },
+                    "ref": {"type": "integer"},
+                    "value": {"type": "string"},
+                },
+                "required": ["op", "ref"],
+                "additionalProperties": False,
+            },
+        },
+        "status": {"type": "string", "enum": ["continue", "ready_to_submit", "needs_account", "needs_owner"]},
+        "note": {"type": "string"},
+    },
+    "required": ["actions", "status", "note"],
+    "additionalProperties": False,
+}
+_RULES = """\
+You fill in my job application in a web browser. Each turn you get the page as JSON and return the next
+actions. Code checks every action and refuses unsafe ones; refusals come back to you under "Steps so far".
+
+Actions, each on an element's ref:
+- {"op": "fill", "ref": R, "value": TEXT} types into a text field (it replaces what is there);
+- {"op": "select", "ref": R, "value": OPTION} picks an option of a select by its exact text;
+- {"op": "check", "ref": R} or {"op": "uncheck", "ref": R} for a checkbox, or check for a radio option;
+- {"op": "upload", "ref": R} puts my resume PDF in a file field (the code supplies the file);
+- {"op": "click", "ref": R} clicks a button or link.
+
+Rules:
+- Fill every field you can from my profile and resume. Leave a field empty when they do not answer it.
+- On a job description page, click its button or link that starts the application ("Apply now",
+  "Apply for this job", "Start application").
+- Upload my resume into the resume or CV field. Do the upload alone in its turn, before the other fields:
+  the site's resume parser may fill or overwrite them.
+- Answer free-text questions briefly and truthfully from my resume and profile. Never invent experience,
+  skills, employers, dates or numbers.
+- For voluntary self-identification questions (gender, race, ethnicity, veteran, disability), pick the
+  option that declines to answer.
+- Tick required consent or acknowledgement boxes (terms, privacy policy, accuracy of my answers). Never tick
+  marketing, newsletter, job alert, talent pool or future-contact opt-ins.
+- For a custom dropdown, click it or fill its text, then click the option in the next turn.
+- When this page is complete, click Next or Continue to go on.
+- Never click the final submit. When only submitting is left, return status "ready_to_submit".
+- At a sign-in, account creation or email verification step, return status "needs_account".
+- When you cannot go on (a question you cannot answer truthfully, an error you cannot fix), return status
+  "needs_owner" and say why in note.
+- Otherwise return status "continue" with this turn's actions.
+- note: one short sentence on what you did or why you stopped.
+"""
+_STOPS = {
+    "ready_to_submit": "ready for you to submit",
+    "needs_account": "sign in or create the account yourself",
+    "needs_owner": "it needs you",
+    "max_steps": "stopped after apply.agent.max_steps ({max_steps}) steps",
+    "stuck": "the page did not change for {unchanged_steps} steps",
+    "max_cost": "stopped at apply.agent.max_cost_usd (${max_cost_usd:.2f})",
+    "llm_error": "the model call failed",
+    "page_error": "the page broke",
+}
+
+
+def describe(status: str, agent_cfg: dict) -> str:
+    return _STOPS.get(status, status).format(**agent_cfg)
+
+
+def resume_text(items: list[Item]) -> str:
+    out, section = [], None
+    for i in items:
+        if i.section != section:
+            section = i.section
+            out += [""] * bool(out) + [section]
+        out.append(f"- {plain(i.text)}")
+    return "\n".join(out)
+
+
+def _prompt(target: Target, cfg: dict, values: dict, resume: str, history: list[str], snap: Snapshot) -> str:
+    profile = "\n".join(f"- {k}: {v}" for k, v in values.items() if v)
+    description = target.description[: cfg["apply"]["agent"]["description_chars"]]
+    steps = "\n".join(history) or "(none: this is the first step)"
+    return (
+        f"{_RULES}\nMy profile:\n{profile}\n\nMy resume:\n{resume}\n\n"
+        f"Job: {target.title} at {target.company}\n\nJob description:\n{description}\n\n"
+        f"Steps so far:\n{steps}\n\nThe page now (JSON):\n{snap.text}\n"
+    )
+
+
+def _settle(page, cfg: dict, uploaded: bool = False) -> None:
+    a = cfg["apply"]
+    with suppress(PlaywrightError):  # pages with live chat or analytics never finish loading
+        page.wait_for_load_state("load", timeout=a["load_timeout_seconds"] * 1000)
+    page.wait_for_timeout((a["agent"]["settle_seconds"] + a["parser_wait_seconds"] * uploaded) * 1000)
+
+
+def _line(action: dict, snap: Snapshot, short: bool = False) -> str:
+    """What an action was, as "fill 5 (Why us?) = TEXT", for the history, the trace and (short) the log."""
+    ref, value = action.get("ref"), action.get("value")
+    where = f" ({snap.label(ref)})" if isinstance(ref, int) and ref in snap.refs else ""
+    if action.get("op") not in ("fill", "select") or not isinstance(value, str):
+        value = None
+    elif short and len(value) > _LOG_VALUE_MAX:
+        value = f"<{len(value)} chars>"
+    return f"{action.get('op')} {ref}{where}" + (f" = {value}" if value is not None else "")
+
+
+class _Run:
+    """What one application's loop has done so far."""
+
+    def __init__(self, target: Target):
+        self.target, self.history, self.steps = target, [], []
+        self.filled, self.answers, self.uploaded, self.refused, self.cost = [], [], False, 0, 0.0
+
+    def step(self, n: int, page, snap: Snapshot, got: dict, cost: float, rules, values, timeout: float):
+        """Does the step's actions; True when one was refused as a sign-in or account step."""
+        actions = got.get("actions") or []
+        record = {
+            "step": n,
+            "snapshot": {"url": snap.view["url"], "elements": len(snap.view["elements"])},
+            "asked": actions,
+            "done": [],
+            "refused": [],
+            "failed": [],
+            "status": got.get("status"),
+            "note": got.get("note", ""),
+            "cost": cost,
+        }
+        self.steps.append(record)
+        self.cost += cost
+        account, logged = False, []
+        for action in actions:
+            if not isinstance(action, dict):
+                action = {"op": repr(action)}
+            line = _line(action, snap)
+            try:
+                act(page, snap, action, self.target.pdf, rules, len(self.filled), timeout)
+            except RefusedError as exc:
+                self.refused += 1
+                record["refused"].append(f"{line}: {exc}")
+                self.history.append(f"step {n}: REFUSED {line}: {exc}")
+                logged.append(f"refused {_line(action, snap, short=True)}: {exc}")
+                if exc.account:
+                    account = True
+                    break
+                continue
+            except PlaywrightError as exc:  # a timeout or a redraw: the model hears of it and may retry
+                record["failed"].append(f"{line}: {type(exc).__name__}")
+                self.history.append(f"step {n}: FAILED {line}: {type(exc).__name__}")
+                logged.append(f"failed {_line(action, snap, short=True)}")
+                continue
+            record["done"].append(line)
+            self.history.append(f"step {n}: done {line}")
+            logged.append(_line(action, snap, short=True))
+            if action["op"] in _FIELD_OPS:
+                label = snap.label(action["ref"])
+                self.filled.append(label)
+                self.uploaded = self.uploaded or action["op"] == "upload"
+                value = action.get("value")
+                if action["op"] == "fill" and value not in values.values():
+                    self.answers.append((label, value))
+        _log.info(
+            "apply %s step %d: %s; cost $%.4f (total $%.4f)",
+            self.target.job_id,
+            n,
+            "; ".join(logged) or "no actions",
+            cost,
+            self.cost,
+        )
+        return account
+
+
+def _banner_lines(run: _Run, note: str, missing: list[str], trace: Path) -> list[str]:
+    t = run.target
+    lines = [f"Note: {note}"] if note else []
+    if run.filled:
+        lines.append(f"Filled {len(run.filled)}: {', '.join(run.filled)}")
+    if run.uploaded:
+        lines.append(f"Uploaded {t.pdf.name}.")
+    else:
+        lines.append(f"No resume uploaded: upload {t.pdf} yourself if the form asks for it.")
+    if run.answers:
+        lines.append("Answers Haiku wrote; check each one:")
+        lines += [f"  {label}: {text}" for label, text in run.answers]
+    if missing:
+        lines.append(f"Required and still empty: {', '.join(missing)}")
+    if run.refused:
+        lines.append(f"The guards refused {run.refused} actions; see {trace}.")
+    return lines
+
+
+def run_application(
+    page, target: Target, cfg: dict, values: dict, resume: str, llm_run, rules: ClickRules, log_dir: Path
+) -> dict:
+    """Opens target.url in page and runs the agent until it stops, then leaves a note on the page, a
+    screenshot and a JSON trace in log_dir. Never on a submit button: the owner submits.
+
+    llm_run(prompt, schema, model, writing) returns (answer, cost in USD), like llm.run_with_cost.
+    Returns {"status", "note", "filled": n, "missing": [labels], "answers": [(label, text)], "steps": n,
+    "cost": usd}.
+    """
+    a, ag = cfg["apply"], cfg["apply"]["agent"]
+    timeout = a["field_timeout_seconds"] * 1000
+    run, status, note, snap, n, digests = _Run(target), "max_steps", "", None, 0, []
+    try:
+        page.goto(target.url, wait_until="domcontentloaded", timeout=a["load_timeout_seconds"] * 1000)
+        _settle(page, cfg)
+        for n in range(1, ag["max_steps"] + 1):
+            snap = read(page, ag)
+            digests = [*digests, hashlib.sha256(snap.text.encode()).hexdigest()][-ag["unchanged_steps"] :]
+            if snap.password:
+                status = "needs_account"
+                break
+            if len(digests) == ag["unchanged_steps"] and len(set(digests)) == 1:
+                status = "stuck"
+                break
+            if run.cost >= ag["max_cost_usd"]:
+                status = "max_cost"
+                break
+            prompt = _prompt(target, cfg, values, resume, run.history, snap)
+            try:
+                got, cost = llm_run(prompt, _SCHEMA, cfg["llm"]["models"]["apply"], writing=False)
+            except LlmError as exc:
+                status, note = "llm_error", str(exc)
+                break
+            before, uploaded = list(page.context.pages), run.uploaded
+            if run.step(n, page, snap, got, cost, rules, values, timeout):
+                status, note = "needs_account", "a password field or a form with one"
+                break
+            if got.get("status", "continue") != "continue":
+                status, note = got["status"], got.get("note", "")
+                break
+            opened = [p for p in page.context.pages if p not in before]
+            if opened:  # an Apply link that opens the form in a new tab
+                page = opened[-1]
+                run.history.append(f"step {n}: a new tab opened ({page.url}); going on there")
+            _settle(page, cfg, uploaded=run.uploaded and not uploaded)
+    except PlaywrightError as exc:  # the page navigated, closed or redrew under the loop
+        status, note = "page_error", f"{type(exc).__name__}: {str(exc)[:200]}"
+    try:
+        missing = read(page, ag).missing
+    except PlaywrightError:
+        missing = snap.missing if snap else []
+    _log.info("apply %s: %s after %d steps, $%.4f", target.job_id, status, n, run.cost)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    trace = log_dir / f"apply-{target.job_id}.json"
+    # The trace holds the model's answers but never the profile or resume it was given.
+    record = {"job": target.job_id, "company": target.company, "url": target.url, "status": status}
+    record |= {"note": note, "cost": run.cost, "steps": run.steps}
+    trace.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+    with suppress(PlaywrightError):  # a broken page may take neither; the terminal and trace say it
+        page.screenshot(path=str(log_dir / f"apply-{target.job_id}-{n}.png"), full_page=True)
+    with suppress(PlaywrightError):
+        head = LOGIN_NOTE if status == "needs_account" else f"JobApplier: {describe(status, ag)}."
+        banner(
+            page, f"{head} Check every page, then submit yourself.", _banner_lines(run, note, missing, trace)
+        )
+    return {
+        "status": status,
+        "note": note,
+        "filled": len(run.filled),
+        "missing": missing,
+        "answers": run.answers,
+        "steps": n,
+        "cost": run.cost,
+    }
