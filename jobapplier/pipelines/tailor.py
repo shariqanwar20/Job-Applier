@@ -42,6 +42,8 @@ def _one(
     decision = (props.get("Decision", {}).get("select") or {}).get("name")
     status = "Needs review" if problems or decision == "Approve + review" else "Tailored"
     attach_resume(client, page["id"], out, status, "; ".join(problems))
+    clusters.record_resume(conn, int(job_id[1:]), str(out))  # apply uploads this exact file
+    conn.commit()
     _log.info("%s: %s, %s", job_id, status, out.name)
     return status
 
