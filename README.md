@@ -53,7 +53,7 @@ The city lists are tiers, best first; remote and everything else rank after the 
 
 ## What gets dropped
 
-- Recruiter and staffing postings: the FreeHire query asks for `via_recruiter=false` (`sources.freehire.via_recruiter`), a posting whose FreeHire company type is in `rules.blocked_company_types` (default `outstaff`, `agency`) is dropped, and so is one whose company name contains a word or phrase from `rules.blocked_companies` (a seeded list of staffing firms; whole words, so `dice` does not match "Dicey Labs").
+- Recruiter and staffing postings: the FreeHire query asks for `via_recruiter=false` (`sources.freehire.via_recruiter`), a posting whose FreeHire company type is in `rules.blocked_company_types` (default `outstaff`, `agency`) is dropped, and so is one whose company name contains a word or phrase from `rules.blocked_companies` (a seeded list of staffing firms; whole words, so `dice` does not match "Dicey Labs" but does match "Dice Health").
 - Non-software "programmer" roles: titles with a word in `rules.exclude` such as `cnc`, `welding` or `plc`.
 
 Lists replace, so to block one more company, copy the whole `blocked_companies` list from `config.default.yaml` into your `config.yaml` and add to it. To let a company through, copy the list without it.

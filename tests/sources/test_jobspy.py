@@ -151,5 +151,7 @@ def test_raised_429_then_success_has_no_error():
             raise a
         return a
 
-    rows, err = Indeed(CFG, 3, scrape=scrape, sleep=no_sleep).fetch()
+    slept = []
+    rows, err = Indeed(CFG, 3, scrape=scrape, sleep=slept.append).fetch()
     assert err is None and len(rows) == 2
+    assert slept[0] == 120

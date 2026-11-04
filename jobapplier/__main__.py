@@ -78,7 +78,7 @@ def _notion_setup(parent_page_id: str) -> int:
     try:
         style_database(client, make_client(token, notion_version=_VIEWS_VERSION), database_id, ds_id, title)
     except (NotionError, KeyError) as exc:  # KeyError: a reply without the expected fields
-        print(f"Could not set up the Inbox view ({exc}); in Notion, group the view by Rank yourself.")
+        print(f"Could not finish styling the database ({exc}); in Notion, group the view by Rank yourself.")
     print(f"Paste into your config.yaml:\nnotion:\n  database_id: {database_id}\n  data_source_id: {ds_id}")
     return 0
 

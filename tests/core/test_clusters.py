@@ -1,4 +1,3 @@
-import sqlite3
 from datetime import UTC, datetime, timedelta
 
 from jobapplier.core.clusters import assign, connect, mark_pushed, members, pushable, summarize
@@ -290,12 +289,3 @@ def test_company_type_is_stored_and_read_back(rules):
     )
     cid = assign(conn, p, NOW, False)
     assert members(conn, cid)[0].company_type == "product"
-
-
-def test_connect_adds_company_type_to_an_older_database(tmp_path):
-    path = str(tmp_path / "old.db")
-    old = sqlite3.connect(path)
-    old.execute("CREATE TABLE postings (source TEXT, source_id TEXT, identity TEXT)")
-    old.commit(), old.close()
-    columns = {r["name"] for r in connect(path).execute("PRAGMA table_info(postings)")}
-    assert "company_type" in columns

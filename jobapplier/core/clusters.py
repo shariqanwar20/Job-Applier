@@ -46,8 +46,6 @@ def connect(path: str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
     # CREATE TABLE IF NOT EXISTS leaves a database from before this column unchanged.
-    if "company_type" not in {r["name"] for r in conn.execute("PRAGMA table_info(postings)")}:
-        conn.execute("ALTER TABLE postings ADD COLUMN company_type TEXT NOT NULL DEFAULT ''")
     return conn
 
 
