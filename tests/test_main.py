@@ -321,3 +321,53 @@ def test_run_discovers_only_when_the_last_discover_is_old_then_tailors(monkeypat
     stamp = tmp_path / "data" / "last_discover"
     os.utime(stamp, (stamp.stat().st_mtime - 3 * 3600,) * 2)
     assert m._run() == 0 and calls[-2:] == ["discover", "tailor"]
+
+
+def test_apply_without_a_profile_names_the_example(home, capsys):
+    root, _ = home
+    set_ids(root)
+    assert app.main(["apply"]) == 1
+    assert "profile.example.yaml" in capsys.readouterr().out
+
+
+def test_apply_opens_the_job_in_chrome_and_marks_it_submitted(home, monkeypatch, rules, capsys):
+    from contextlib import contextmanager
+
+    from tests.apply.test_browser import FakePage
+    from tests.apply.test_fill import field
+
+    root, _ = home
+    set_ids(root)
+    shutil.copy(Path(app.__file__).parents[1] / "profile.example.yaml", root / "profile.yaml")
+    (root / "data").mkdir()
+    conn = clusters.connect(str(root / "data" / "jobs.db"))
+    clusters.assign(conn, AFFIRM_INDEED, rules, datetime(2026, 11, 1, tzinfo=UTC), False)
+    (root / "output").mkdir()
+    (root / "output" / "A_J1.pdf").write_bytes(b"%PDF")
+    conn.commit()
+    n = FakeNotion()
+    n.rows = {
+        "p1": {
+            "Company": {"rich_text": [{"text": {"content": "Affirm"}}]},
+            "Job ID": {"rich_text": [{"text": {"content": "J1"}}]},
+            "Status": {"select": {"name": "Tailored"}},
+            "Resume": {"files": [{"name": "A_J1.pdf"}]},
+        }
+    }
+    page, profiles = FakePage([[field("1", "First Name")]]), []
+
+    @contextmanager
+    def fake_chrome(profile_dir):
+        profiles.append(profile_dir)
+        yield type("Ctx", (), {"new_page": lambda self: page})()
+
+    monkeypatch.setattr(app, "make_client", lambda token: n)
+    monkeypatch.setattr(app, "chrome", fake_chrome)
+    answers = iter(["", "y"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    assert app.main(["apply", "--job", "J1"]) == 0
+    assert profiles == [root / "data" / "browser-profile"]
+    assert page.url == "https://job-boards.greenhouse.io/affirm/jobs/8042399003"
+    assert page.done == [("fill", "1", "Alex")]
+    assert n.rows["p1"]["Status"] == {"select": {"name": "Submitted"}}
+    assert "opened J1 (Affirm)" in capsys.readouterr().out
