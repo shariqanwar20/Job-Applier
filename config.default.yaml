@@ -108,11 +108,13 @@ apply:  # `apply` opens ready rows in Chrome and pre-fills the form; you check i
   # whole word in submit_words, so "Continue application" is still a next button.
   submit_stems: [submi, send, sent, finish, final, complet, confirm, done, post]
   sign_in_button_words: [continue with, sign in with, log in with]  # "Continue with Google" signs you in
-  # A checkbox whose label has one of consent_words is ticked (terms, privacy, "the above is accurate").
-  # One with an opt_in_words word (marketing, being contacted, keeping your data) is left for you, even when
-  # it also has a consent word, unless tick_opt_ins.
+  # A checkbox is ticked only when its label has a consent_words word, a policy_words word, and no
+  # opt_in_words word: "I have read and agree to the privacy policy" is ticked; "I agree to hear about
+  # similar openings" is left for you. A required box left unticked stops the walk for you.
+  # tick_opt_ins: true ticks every box with a consent word.
   consent_words: [consent, agree, acknowledge, privacy, terms, certify, accurate, true and complete, authorize]
-  opt_in_words: [receive, contacted, contact me, communications, future opportunities, future openings, future roles, talent community, talent pool, subscribe, updates, newsletter, whatsapp, text, texts, sms, text message, marketing, promotional, partners, retain, retaining, job alerts]
+  policy_words: [terms, privacy, policy, notice, accurate, "true", certify, acknowledge, read, understand, data processing, gdpr]
+  opt_in_words: [receive, contacted, contact me, communications, future opportunities, future openings, future roles, talent community, talent pool, subscribe, updates, newsletter, whatsapp, text, texts, sms, text message, marketing, promotional, partners, retain, retaining, job alerts, other, future, similar, new, roles, positions, openings, vacancies, network, pool, events, informed, notify, share, sharing, affiliates, store, storing, email, emailed, hear]
   tick_opt_ins: false
   # A label with one of these word starts is never filled from profile.yaml: someone else's name or phone
   # ("Contact name", "Emergency contact"); your own "Contact email" or "Contact number" is still filled.

@@ -155,6 +155,7 @@ class FieldRules:
     decline: re.Pattern
     login: re.Pattern
     consent: re.Pattern
+    policy: re.Pattern
     opt_in: re.Pattern
     tick_opt_ins: bool
     next_start: re.Pattern  # a next phrase at the start of a normalized visible name
@@ -183,6 +184,7 @@ class FieldRules:
             words(apply_cfg["decline_words"]),
             words(apply_cfg["login_words"]),
             words(apply_cfg["consent_words"]),
+            words(apply_cfg["policy_words"]),
             words(apply_cfg["opt_in_words"]),
             bool(apply_cfg["tick_opt_ins"]),
             re.compile(r"^(" + "|".join(map(re.escape, nexts)) + r")\b"),
@@ -315,9 +317,10 @@ def plan(fields: list[dict], values: dict, rules: FieldRules, description: str) 
             continue
         text = norm(f"{_label(f)} {f['name']}")
         if f["type"] == "checkbox":
-            # an opt-in wins over consent words: "I agree to receive marketing emails" stays unticked
-            opt_in = bool(rules.opt_in.search(text))
-            if not f["checked"] and (rules.tick_opt_ins if opt_in else rules.consent.search(text)):
+            # Unticked unless it is plainly a policy consent: an opt-in may also say "I agree".
+            consent = rules.consent.search(text)
+            policy = rules.policy.search(text) and not rules.opt_in.search(text)
+            if not f["checked"] and consent and (rules.tick_opt_ins or policy):
                 actions.append(("tick_consent", f["id"], "", _display(f)))
             continue
         own = norm(_label(f))

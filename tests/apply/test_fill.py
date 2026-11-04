@@ -554,3 +554,40 @@ def test_submit_word_starts_refuse_a_next_button_and_stop_the_walk(text, rules):
 def test_continue_application_is_still_a_next_button(rules):
     assert rules.is_next(button("1", "Continue application"))
     assert not rules.is_submit_button(button("1", "Continue application"))
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "I agree to be considered for other roles at Acme",
+        "I consent to Acme keeping my profile for future positions",
+        "I agree to hear about similar openings",
+        "I agree to join the Acme talent network",
+        "I consent to being notified about hiring events",
+        "I agree to Acme sharing my profile with its affiliates",
+        "I consent to storing my resume for new vacancies",
+        "I agree to be emailed when jobs open",
+        "I agree",  # a consent word with no policy word
+    ],
+)
+def test_a_consent_box_without_a_policy_word_or_with_a_future_contact_word_stays_unticked(label, rules):
+    assert plan([field("1", label, type="checkbox", value="on")], VALUES, rules, "") == []
+
+
+@pytest.mark.parametrize(
+    "label", ["I have read and agree to the privacy policy", "I certify the information is accurate"]
+)
+def test_a_policy_consent_box_is_ticked(label, rules):
+    assert [a[0] for a in plan([field("1", label, type="checkbox", value="on")], VALUES, rules, "")] == [
+        "tick_consent"
+    ]
+
+
+def test_tick_opt_ins_ticks_every_box_with_a_consent_word(config):
+    config["apply"]["tick_opt_ins"] = True
+    rules = FieldRules.from_config(config["apply"])
+    boxes = [
+        field("1", "I agree to hear about similar openings", type="checkbox", value="on"),
+        field("2", "Send me job alerts", type="checkbox", value="on"),
+    ]
+    assert [a[:2] for a in plan(boxes, VALUES, rules, "")] == [("tick_consent", "1")]
