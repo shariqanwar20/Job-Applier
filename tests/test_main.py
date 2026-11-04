@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from jobapplier import __main__ as app
-from jobapplier.notion.client import call, make_client
+from jobapplier.notion.client import NotionError, call, make_client
 from jobapplier.system import launchd
 from jobapplier.system.lock import locked
 from tests.conftest import AFFIRM_INDEED, FakeNotion, FakeSource
@@ -124,14 +124,34 @@ def test_uninstall_agent_dispatches_to_launchd(monkeypatch):
     assert calls == [1]
 
 
-def test_notion_setup_creates_database_and_prints_snippet(home, monkeypatch, capsys):
+def test_notion_setup_creates_database_styles_it_and_prints_snippet(home, monkeypatch, capsys):
     calls = []
-    monkeypatch.setattr(app, "make_client", lambda token: f"client-{token}")
-    monkeypatch.setattr(app, "create_database", lambda n, page: calls.append((n, page)) or ("db9", "ds9"))
+    monkeypatch.setattr(
+        app, "make_client", lambda token, notion_version=None: f"client-{token}-{notion_version}"
+    )
+    monkeypatch.setattr(
+        app, "create_database", lambda n, page, title: calls.append((n, page, title)) or ("db9", "ds9")
+    )
+    monkeypatch.setattr(app, "style_database", lambda *args: calls.append(args))
     assert app.main(["notion-setup", "page1"]) == 0
-    assert calls == [("client-tok", "page1")]
+    assert calls == [
+        ("client-tok-None", "page1", "Full Time Role Search"),
+        ("client-tok-None", "client-tok-2026-03-11", "db9", "ds9", "Full Time Role Search"),
+    ]
     out = capsys.readouterr().out
     assert "config.yaml" in out and "database_id: db9" in out and "data_source_id: ds9" in out
+
+
+def test_notion_setup_survives_a_failing_view_setup(home, monkeypatch, capsys):
+    def fail(*args):
+        raise NotionError("400 unsupported")
+
+    monkeypatch.setattr(app, "make_client", lambda token, notion_version=None: None)
+    monkeypatch.setattr(app, "create_database", lambda *args: ("db9", "ds9"))
+    monkeypatch.setattr(app, "style_database", fail)
+    assert app.main(["notion-setup", "page1"]) == 0
+    out = capsys.readouterr().out
+    assert "group the view by Rank yourself" in out and "400 unsupported" in out and "database_id: db9" in out
 
 
 def test_main_keeps_httpx_request_logs_out(monkeypatch, caplog):

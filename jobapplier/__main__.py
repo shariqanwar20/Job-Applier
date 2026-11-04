@@ -12,8 +12,8 @@ from pathlib import Path
 from jobapplier.config import load_config, load_env
 from jobapplier.core import clusters
 from jobapplier.core.rules import Rules
-from jobapplier.notion.client import make_client
-from jobapplier.notion.push import create_database
+from jobapplier.notion.client import NotionError, make_client
+from jobapplier.notion.push import create_database, style_database
 from jobapplier.pipelines.discover import run_discover
 from jobapplier.sources import build_sources
 from jobapplier.system import launchd
@@ -25,6 +25,7 @@ __all__ = ["main"]
 _ROOT = Path(__file__).resolve().parents[1]
 _log = logging.getLogger("jobapplier")
 _NO_TOKEN = "Set NOTION_TOKEN in .env (see .env.example)"
+_VIEWS_VERSION = "2026-03-11"  # the first Notion version with the views API
 _NO_IDS = "Set notion IDs in config.yaml — run: python -m jobapplier notion-setup <page_id>"
 
 
@@ -33,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("discover", help="fetch fresh jobs and add the new ones to Notion")
     setup = commands.add_parser(
-        "notion-setup", help="create the Jobs database under a Notion page and print the config snippet"
+        "notion-setup", help="create the database under a Notion page and print the config snippet"
     )
     setup.add_argument("parent_page_id")
     commands.add_parser("install-agent", help="run discover every two hours via a launchd LaunchAgent")
@@ -71,7 +72,13 @@ def _notion_setup(parent_page_id: str) -> int:
     if not token:
         print(_NO_TOKEN)
         return 1
-    database_id, ds_id = create_database(make_client(token), parent_page_id)
+    title = load_config(_ROOT)["notion"]["title"]
+    client = make_client(token)
+    database_id, ds_id = create_database(client, parent_page_id, title)
+    try:
+        style_database(client, make_client(token, notion_version=_VIEWS_VERSION), database_id, ds_id, title)
+    except (NotionError, KeyError) as exc:  # KeyError: a reply without the expected fields
+        print(f"Could not set up the Inbox view ({exc}); in Notion, group the view by Rank yourself.")
     print(f"Paste into your config.yaml:\nnotion:\n  database_id: {database_id}\n  data_source_id: {ds_id}")
     return 0
 

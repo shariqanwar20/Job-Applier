@@ -3,7 +3,7 @@ from notion_client import Client
 from jobapplier.core import clusters
 from jobapplier.notion.client import NotionError, call
 
-__all__ = ["create_database", "push", "set_status"]
+__all__ = ["create_database", "push", "set_status", "style_database"]
 
 
 def _options(*names: str) -> dict:
@@ -28,14 +28,48 @@ _SCHEMA = {
 }
 
 
-def create_database(client: Client, parent_page_id: str) -> tuple[str, str]:
+def _title(text: str) -> list[dict]:
+    return [{"text": {"content": text}}]
+
+
+def create_database(client: Client, parent_page_id: str, title: str) -> tuple[str, str]:
     r = call(
         client.databases.create,
         parent={"type": "page_id", "page_id": parent_page_id},
-        title=[{"text": {"content": "Jobs"}}],
+        title=_title(title),
+        is_inline=True,  # sits directly on the parent page instead of opening as a sub-page
         initial_data_source={"properties": _SCHEMA},
     )
     return r["id"], r["data_sources"][0]["id"]
+
+
+def style_database(client: Client, views_client: Client, database_id: str, ds_id: str, title: str) -> None:
+    """Titles the data source and turns the default view into an Inbox grouped by Rank.
+
+    Best effort for the caller: the database already works without it. The views API needs a newer
+    Notion version than the rest of the code, hence views_client.
+    """
+    call(client.data_sources.update, data_source_id=ds_id, title=_title(title))  # the view header shows it
+    rank_id = call(client.data_sources.retrieve, data_source_id=ds_id)["properties"]["Rank"]["id"]
+    views = call(views_client.views.list, database_id=database_id)["results"]
+    if not views:
+        raise NotionError("the database has no view")
+    call(
+        views_client.views.update,
+        view_id=views[0]["id"],
+        name="Inbox",
+        filter={"property": "Decision", "select": {"does_not_equal": "Skip"}},
+        sorts=[{"property": "First seen", "direction": "descending"}],
+        configuration={
+            "type": "table",
+            "group_by": {
+                "type": "select",
+                "property_id": rank_id,
+                "sort": {"type": "manual"},
+                "hide_empty_groups": True,
+            },
+        },
+    )
 
 
 def _text(value: str) -> list[dict]:

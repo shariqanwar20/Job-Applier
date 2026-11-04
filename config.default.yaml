@@ -29,5 +29,6 @@ sources:
   indeed: {terms: [software engineer, full stack engineer], location: Canada, country: Canada, results_wanted: 100, delay_seconds: [4, 8], retry_after_429_seconds: 120}
   linkedin: {terms: [software engineer, full stack engineer], location: Canada, results_wanted: 100, delay_seconds: [4, 8], retry_after_429_seconds: 120}
 notion:
+  title: Full Time Role Search   # the database and its view header, set by `notion-setup`
   database_id: ""        # set in your config.yaml; `python -m jobapplier notion-setup` prints it
   data_source_id: ""     # set in your config.yaml too

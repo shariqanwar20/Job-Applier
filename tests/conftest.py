@@ -66,7 +66,9 @@ class FakeNotion:
             [],
         )
         self.databases = SimpleNamespace(create=self._create_database, update=self._update_database)
-        self.data_sources = SimpleNamespace(query=self._query)
+        self.data_sources = SimpleNamespace(
+            query=self._query, update=self._update_data_source, retrieve=self._retrieve_data_source
+        )
         self.pages = SimpleNamespace(create=self._create_page)
 
     def _query(self, data_source_id, **kw):
@@ -78,6 +80,14 @@ class FakeNotion:
             if p["Job ID"]["rich_text"][0]["text"]["content"] == want
         ]
         return {"results": hits[: kw["page_size"]]}
+
+    def _update_data_source(self, data_source_id, **kw):
+        self.calls.append(("data_sources.update", {"data_source_id": data_source_id, **kw}))
+        return {}
+
+    def _retrieve_data_source(self, data_source_id):
+        self.calls.append(("data_sources.retrieve", {"data_source_id": data_source_id}))
+        return {"properties": {"Rank": {"id": "rank%3Aid", "type": "select"}}}
 
     def _create_page(self, **kw):
         self.calls.append(("pages.create", kw))
@@ -96,6 +106,24 @@ class FakeNotion:
     def _create_database(self, **kw):
         self.calls.append(("databases.create", kw))
         return {"id": "db1", "data_sources": [{"id": "ds1"}]}
+
+
+class FakeViewsNotion:
+    """The Notion client built for the views API (a newer Notion version than FakeNotion's)."""
+
+    def __init__(self, views=({"object": "view", "id": "view1"},), fail=None):
+        self.views_listed, self.fail, self.calls = list(views), fail, []
+        self.views = SimpleNamespace(list=self._list, update=self._update)
+
+    def _list(self, **kw):
+        self.calls.append(("views.list", kw))
+        if self.fail:
+            raise self.fail
+        return {"results": self.views_listed}
+
+    def _update(self, view_id, **kw):
+        self.calls.append(("views.update", {"view_id": view_id, **kw}))
+        return {}
 
 
 @pytest.fixture(autouse=True)

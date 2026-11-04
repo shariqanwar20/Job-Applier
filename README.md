@@ -26,8 +26,8 @@ Sources: the FreeHire public API, and LinkedIn and Indeed through [python-jobspy
    uv run python -m jobapplier notion-setup <parent_page_id>
    ```
 
-   It prints a `notion:` block. Paste it into a new file named `config.yaml` in the repo root (the file is git-ignored).
-4. In Notion, add an **Inbox** view to the database with the filters `Status is New` and `Decision is not Skip`, sorted by Rank ascending, then First seen descending.
+   It creates an inline database titled "Full Time Role Search" (`notion.title`) directly on that page, with an **Inbox** view that hides rows whose Decision is Skip, sorts by First seen (newest first) and groups by Rank. It then prints a `notion:` block. Paste it into a new file named `config.yaml` in the repo root (the file is git-ignored). If the view cannot be set up, setup says so; group the view by Rank yourself.
+4. Notion cannot pre-collapse a group. Click the arrow on the "3 Other" group once to collapse it; Notion remembers that, so ranks 1 and 2 stay in front.
 
 ## Configure
 
@@ -50,6 +50,15 @@ sources:
 ```
 
 The city lists are tiers, best first; remote and everything else rank after the last tier. Because lists replace, a list you override (such as `cities` or `terms`) must contain every entry you want.
+
+## What gets dropped
+
+- Recruiter and staffing postings: the FreeHire query asks for `via_recruiter=false` (`sources.freehire.via_recruiter`), a posting whose FreeHire company type is in `rules.blocked_company_types` (default `outstaff`, `agency`) is dropped, and so is one whose company name contains a word or phrase from `rules.blocked_companies` (a seeded list of staffing firms; whole words, so `dice` does not match "Dicey Labs").
+- Non-software "programmer" roles: titles with a word in `rules.exclude` such as `cnc`, `welding` or `plc`.
+
+Lists replace, so to block one more company, copy the whole `blocked_companies` list from `config.default.yaml` into your `config.yaml` and add to it. To let a company through, copy the list without it.
+
+LinkedIn and Indeed answering 429 (rate limited) is retried once after `retry_after_429_seconds` (default 120); a second 429 stops that source for the run.
 
 ## Run once by hand
 

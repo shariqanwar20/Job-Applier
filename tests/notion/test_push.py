@@ -1,11 +1,13 @@
 from datetime import UTC, datetime
 
 import httpx
+import pytest
 
 from jobapplier.core.clusters import assign, connect
 from jobapplier.models import Posting
-from jobapplier.notion.push import _page_properties, create_database, push, set_status
-from tests.conftest import FakeNotion, api_error
+from jobapplier.notion.client import NotionError
+from jobapplier.notion.push import _page_properties, create_database, push, set_status, style_database
+from tests.conftest import FakeNotion, FakeViewsNotion, api_error
 
 NOW = datetime(2026, 10, 31, 12, tzinfo=UTC)
 SUMMARY = {
@@ -53,9 +55,10 @@ def test_set_status_patches_description_cut_to_2000():
 
 def test_create_database_posts_schema_and_returns_ids():
     n = FakeNotion()
-    assert create_database(n, "parent1") == ("db1", "ds1")
+    assert create_database(n, "parent1", "Role Search") == ("db1", "ds1")
     name, kw = n.calls[0]
     assert name == "databases.create" and kw["parent"] == {"type": "page_id", "page_id": "parent1"}
+    assert kw["is_inline"] is True and kw["title"] == [{"text": {"content": "Role Search"}}]
     props = kw["initial_data_source"]["properties"]
     assert props["Job ID"] == {"rich_text": {}} and props["Title"] == {"title": {}}
     assert [o["name"] for o in props["Rank"]["select"]["options"]] == [
@@ -63,6 +66,47 @@ def test_create_database_posts_schema_and_returns_ids():
         "2 Under 3 yrs",
         "3 Other",
     ]
+
+
+def test_style_database_titles_the_data_source_and_groups_the_default_view_by_rank():
+    n, v = FakeNotion(), FakeViewsNotion()
+    style_database(n, v, "db1", "ds1", "Role Search")
+    assert n.calls == [
+        ("data_sources.update", {"data_source_id": "ds1", "title": [{"text": {"content": "Role Search"}}]}),
+        ("data_sources.retrieve", {"data_source_id": "ds1"}),
+    ]
+    assert v.calls == [
+        ("views.list", {"database_id": "db1"}),
+        (
+            "views.update",
+            {
+                "view_id": "view1",
+                "name": "Inbox",
+                "filter": {"property": "Decision", "select": {"does_not_equal": "Skip"}},
+                "sorts": [{"property": "First seen", "direction": "descending"}],
+                "configuration": {
+                    "type": "table",
+                    "group_by": {
+                        "type": "select",
+                        "property_id": "rank%3Aid",
+                        "sort": {"type": "manual"},
+                        "hide_empty_groups": True,
+                    },
+                },
+            },
+        ),
+    ]
+
+
+def test_style_database_without_a_view_is_a_notion_error():
+    with pytest.raises(NotionError, match="no view"):
+        style_database(FakeNotion(), FakeViewsNotion(views=()), "db1", "ds1", "t")
+
+
+def test_style_database_wraps_views_api_errors():
+    v = FakeViewsNotion(fail=api_error(400, "validation_error", "unsupported"))
+    with pytest.raises(NotionError, match=r"^400 unsupported$"):
+        style_database(FakeNotion(), v, "db1", "ds1", "t")
 
 
 def seed(rules, count=3):

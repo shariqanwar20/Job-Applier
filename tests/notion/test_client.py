@@ -40,6 +40,12 @@ def test_make_client_sends_token_and_version_and_retries_429():
     assert str(sent[0].url) == "https://api.notion.com/v1/data_sources/ds1/query"
 
 
+def test_make_client_can_pin_a_notion_version():
+    http, sent = mock_http([httpx.Response(200, json={"results": []})])
+    call(make_client("tok", http, notion_version="2026-03-11").views.list, database_id="db1")
+    assert sent[0].headers["Notion-Version"] == "2026-03-11" and sent[0].url.path == "/v1/views"
+
+
 def test_page_create_is_not_resent_after_a_server_error():
     http, sent = mock_http(
         [

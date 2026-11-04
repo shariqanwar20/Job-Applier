@@ -12,12 +12,14 @@ class NotionError(Exception):
     pass
 
 
-def make_client(token: str, http: httpx.Client | None = None) -> Client:
+def make_client(token: str, http: httpx.Client | None = None, notion_version: str | None = None) -> Client:
     # The SDK retries 429 on every method but 5xx only on GET/DELETE, so a page create is never sent twice.
     # Our own logger: without one the SDK adds a handler that, with propagation, prints each warning twice.
+    options = {"notion_version": notion_version} if notion_version else {}  # else the SDK's own default
     return Client(
         client=http,
         auth=token,
+        **options,
         retry=RetryOptions(max_retries=5),
         logger=logging.getLogger("jobapplier.notion"),
     )
