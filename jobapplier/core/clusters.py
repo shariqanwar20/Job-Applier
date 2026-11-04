@@ -22,6 +22,8 @@ _COMPANY_NOISE = {
     "limited",
     "sa",
     "the",
+    "of",
+    "and",
 }
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS clusters (
@@ -33,6 +35,7 @@ CREATE TABLE IF NOT EXISTS postings (
   source TEXT NOT NULL, source_id TEXT NOT NULL, cluster_id INTEGER NOT NULL REFERENCES clusters(id),
   identity TEXT, title TEXT, company TEXT, location TEXT, url TEXT, posted TEXT, description TEXT,
   seniority TEXT, no_location INTEGER NOT NULL, first_seen TEXT NOT NULL,
+  company_type TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (source, source_id));
 CREATE INDEX IF NOT EXISTS postings_identity ON postings(identity);
 """
@@ -42,6 +45,9 @@ def connect(path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    # CREATE TABLE IF NOT EXISTS leaves a database from before this column unchanged.
+    if "company_type" not in {r["name"] for r in conn.execute("PRAGMA table_info(postings)")}:
+        conn.execute("ALTER TABLE postings ADD COLUMN company_type TEXT NOT NULL DEFAULT ''")
     return conn
 
 
@@ -83,7 +89,8 @@ def assign(conn: sqlite3.Connection, p: Posting, now: datetime, include_reposts:
         ).lastrowid
     conn.execute(
         "INSERT INTO postings (source, source_id, cluster_id, identity, title, company, location, url,"
-        " posted, description, seniority, no_location, first_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " posted, description, seniority, no_location, first_seen, company_type)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             p.source,
             p.source_id,
@@ -98,6 +105,7 @@ def assign(conn: sqlite3.Connection, p: Posting, now: datetime, include_reposts:
             p.seniority,
             int(p.no_location),
             stamp,
+            p.company_type,
         ),
     )
     return cid
@@ -113,7 +121,7 @@ def pushable(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 def members(conn: sqlite3.Connection, cluster_id: int) -> list[Posting]:
     rows = conn.execute(
         "SELECT source, source_id, title, company, location, url, posted, description, seniority,"
-        " no_location, identity FROM postings WHERE cluster_id = ? ORDER BY rowid",
+        " no_location, identity, company_type FROM postings WHERE cluster_id = ? ORDER BY rowid",
         (cluster_id,),
     )
     return [Posting(**{**r, "no_location": bool(r["no_location"])}) for r in rows]

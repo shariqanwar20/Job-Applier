@@ -4,7 +4,11 @@ rules:
   # Whole words/phrases matched on the normalized title (lowercase, ASCII, punctuation -> space).
   include: [developer, engineer, programmer, software, full stack, fullstack, back end, backend, front end, frontend, sde, mobile, developpeur, developpeuse, ingenieur logiciel, ingenieure logiciel]
   # Seniority words that drop a title.
-  exclude: [senior, sr, staff, principal, lead, manager, director, architect, head of]
+  exclude: [senior, sr, staff, principal, lead, manager, director, architect, head of, cnc, welding, robot programmer, plc, machining, machinist]
+  # Postings whose FreeHire company type is listed are dropped.
+  blocked_company_types: [outstaff, agency]
+  # Recruiting and staffing companies, dropped (whole words in the company name).
+  blocked_companies: [jobgether, turing, placements24, vhr professional services, techedin, smart it frame, sra group, epsilon solutions, artech, lancesoft, mitchell martin, hour consulting, planit search, tekrek, flexton, axelon, aptask, alltech consulting, s i systems, tech talent international, analyst technical, lighthouse technology, randstad, robert half, teksystems, insight global, adecco, hays, kforce, cybercoders, dice]
   # Intern/co-op titles are kept only at a notable company.
   intern: [intern, internship, co op, coop, stagiaire, stage]
   # Title words that rank a posting 1 (new grad / junior).
@@ -21,9 +25,9 @@ rules:
 # Fetch order; also the tie-break priority when merging a cluster's members.
 # A config.yaml override can change a source's settings but not remove a source (edit this list in your own copy for that).
 sources:
-  freehire: {countries: [ca], regions: [none], categories: [software_engineering, fullstack, backend, frontend, ai_engineering, mobile]}
-  indeed: {terms: [software engineer, full stack engineer], location: Canada, country: Canada, results_wanted: 100, delay_seconds: [4, 8]}
-  linkedin: {terms: [software engineer, full stack engineer], location: Canada, results_wanted: 100, delay_seconds: [4, 8]}
+  freehire: {via_recruiter: false, countries: [ca], regions: [none], categories: [software_engineering, fullstack, backend, frontend, ai_engineering, mobile]}
+  indeed: {terms: [software engineer, full stack engineer], location: Canada, country: Canada, results_wanted: 100, delay_seconds: [4, 8], retry_after_429_seconds: 120}
+  linkedin: {terms: [software engineer, full stack engineer], location: Canada, results_wanted: 100, delay_seconds: [4, 8], retry_after_429_seconds: 120}
 notion:
   database_id: ""        # set in your config.yaml; `python -m jobapplier notion-setup` prints it
   data_source_id: ""     # set in your config.yaml too

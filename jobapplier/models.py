@@ -16,3 +16,4 @@ class Posting:
     seniority: str = ""
     no_location: bool = False
     identity: str | None = None
+    company_type: str = ""  # FreeHire enrichment: inhouse | product | agency | outstaff | ...

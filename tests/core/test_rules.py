@@ -27,6 +27,12 @@ def test_norm():
         ("Staff Fullstack Developer- Simulation", False),
         ("Lead Full Stack Developer", False),
         ("Salesforce Administrator", False),
+        ("Junior CNC Programmer", False),
+        ("Welding Robot Programmer", False),
+        ("PLC Programmer", False),
+        ("Machinist Programmer", False),
+        ("Junior Java Software Developer", True),
+        ("Application Developer, Junior", True),
     ],
 )
 def test_keep_by_title(title, ok, rules):
@@ -69,3 +75,37 @@ def test_config_words_are_normalized(config):
 def test_punctuation_only_word_matches_nothing(config):
     r = Rules.from_config({**config, "rules": {**config["rules"], "include": ["developer", "-"]}})
     assert not keep(job("Pastry Chef"), r) and keep(job("Software Developer"), r)
+
+
+def test_blocked_company_type_is_dropped(rules):
+    for company_type in ("outstaff", "agency"):
+        assert not keep(
+            Posting("freehire", "1", "Software Developer", "Acme", "Toronto", "u", company_type=company_type),
+            rules,
+        )
+    for company_type in ("inhouse", "product", ""):
+        assert keep(
+            Posting("freehire", "1", "Software Developer", "Acme", "Toronto", "u", company_type=company_type),
+            rules,
+        )
+
+
+@pytest.mark.parametrize(
+    "company", ["Jobgether", "Turing", "Robert Half", "Randstad Canada Inc.", "S.I. Systems", "TEKsystems"]
+)
+def test_blocked_company_is_dropped(company, rules):
+    assert not keep(Posting("linkedin", "1", "Software Developer", company, "Toronto", "u"), rules)
+
+
+def test_blocked_company_matches_whole_words_only(rules):
+    for company in ("Acme", "Turingly Labs", "Hayseed Software", "Predice"):
+        assert keep(Posting("linkedin", "1", "Software Developer", company, "Toronto", "u"), rules)
+
+
+def test_empty_blocklists_block_nothing(config):
+    r = Rules.from_config(
+        {**config, "rules": {**config["rules"], "blocked_companies": [], "blocked_company_types": []}}
+    )
+    assert keep(
+        Posting("freehire", "1", "Software Developer", "Jobgether", "Toronto", "u", company_type="agency"), r
+    )

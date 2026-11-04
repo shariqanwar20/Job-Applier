@@ -29,6 +29,8 @@ class Rules:
     cities: tuple[re.Pattern, ...]
     notable: re.Pattern
     aggregators: tuple[str, ...]
+    blocked_types: frozenset[str]
+    blocked_companies: re.Pattern
     source_order: tuple[str, ...]
 
     @classmethod
@@ -42,6 +44,8 @@ class Rules:
             cities=tuple(_words(tier) for tier in r["cities"]),
             notable=_words(r["notable_companies"]),
             aggregators=tuple(r["aggregator_hosts"]),
+            blocked_types=frozenset(map(norm, r["blocked_company_types"])),
+            blocked_companies=_words(r["blocked_companies"]),
             source_order=tuple(cfg["sources"]),
         )
 
@@ -59,7 +63,15 @@ def is_notable(company: str, rules: Rules) -> bool:
     return bool(rules.notable.search(norm(company)))
 
 
+def _is_blocked(p: Posting, rules: Rules) -> bool:
+    return norm(p.company_type) in rules.blocked_types or bool(
+        rules.blocked_companies.search(norm(p.company))
+    )
+
+
 def keep(p: Posting, rules: Rules) -> bool:
-    return _is_target_title(p.title, rules) and (
-        not is_intern(p.title, rules) or is_notable(p.company, rules)
+    return (
+        _is_target_title(p.title, rules)
+        and not _is_blocked(p, rules)
+        and (not is_intern(p.title, rules) or is_notable(p.company, rules))
     )

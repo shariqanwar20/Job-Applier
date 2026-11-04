@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 from jobapplier.core.clusters import assign, connect, mark_pushed, members, pushable, summarize
@@ -250,3 +251,51 @@ def test_clustering_ignores_company_suffixes_and_title_parentheticals(rules):
         False,
     )
     assert a == b
+
+
+def test_clustering_ignores_of_and_and_in_company_names(rules):
+    conn = connect(":memory:")
+    a = posting(
+        rules,
+        "linkedin",
+        "1",
+        "Software Developer",
+        "House of Commons (Canada)",
+        "Ottawa",
+        "https://www.linkedin.com/jobs/view/1",
+    )
+    b = posting(
+        rules,
+        "indeed",
+        "2",
+        "Software Developer",
+        "House of Commons of Canada",
+        "Ottawa",
+        "https://ca.indeed.com/viewjob?jk=2",
+    )
+    assert assign(conn, a, NOW, False) == assign(conn, b, NOW, False)
+
+
+def test_company_type_is_stored_and_read_back(rules):
+    conn = connect(":memory:")
+    p = posting(
+        rules,
+        "freehire",
+        "1",
+        "Software Developer",
+        "Acme",
+        "Toronto",
+        "https://jobs.lever.co/acme/1",
+        company_type="product",
+    )
+    cid = assign(conn, p, NOW, False)
+    assert members(conn, cid)[0].company_type == "product"
+
+
+def test_connect_adds_company_type_to_an_older_database(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE postings (source TEXT, source_id TEXT, identity TEXT)")
+    old.commit(), old.close()
+    columns = {r["name"] for r in connect(path).execute("PRAGMA table_info(postings)")}
+    assert "company_type" in columns

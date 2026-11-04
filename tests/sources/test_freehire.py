@@ -43,6 +43,12 @@ def test_parse_greenhouse_row(config):
     assert p.url.startswith("https://job-boards.greenhouse.io/affirm/jobs/8042399003")
 
 
+def test_parse_company_type(config):
+    row = next(r for r in PAGE["data"] if r["enrichment"] and r["enrichment"].get("company_type"))
+    assert one_row(row, config).company_type == row["enrichment"]["company_type"]
+    assert one_row({**row, "enrichment": None}, config).company_type == ""
+
+
 def test_parse_no_location_row(config):
     assert one_row(PAGE["data"][-1], config).no_location is True
 
@@ -67,6 +73,7 @@ def test_fetch_sends_one_query_and_parses_all_rows(config):
         "mobile",
     }
     assert ("open_within_days", 3) in params and ("description_format", "text") in params
+    assert ("via_recruiter", "false") in params
     assert s.calls[0]["path"] == "/agent/jobs/search"
 
 

@@ -15,7 +15,9 @@ NOW = datetime(2026, 10, 31, 12, tzinfo=UTC)
 
 def fixture_rows():
     api = SimpleNamespace(get_json=lambda path, params: PAGE)
-    rows, err = FreeHire({"countries": [], "regions": [], "categories": []}, 3, api=api).fetch()
+    rows, err = FreeHire(
+        {"via_recruiter": False, "countries": [], "regions": [], "categories": []}, 3, api=api
+    ).fetch()
     assert err is None
     return rows
 

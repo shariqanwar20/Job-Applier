@@ -22,6 +22,7 @@ def _parse(row: dict) -> Posting:
         description=row["description"] or "",
         seniority=enrichment.get("seniority") or "",
         no_location=not row["countries"],
+        company_type=enrichment.get("company_type") or "",
     )
 
 
@@ -32,6 +33,7 @@ class FreeHire(Source):
         self.api = api or ApiClient(_BASE_URL, timeout=30)
         self.params = [("countries", c) for c in cfg["countries"]] + [("regions", r) for r in cfg["regions"]]
         self.params += [("category", c) for c in cfg["categories"]]
+        self.params.append(("via_recruiter", str(cfg["via_recruiter"]).lower()))
         self.params += [("open_within_days", lookback_days), ("description_format", "text"), ("limit", _PAGE)]
 
     def fetch(self) -> tuple[list[Posting], str | None]:
