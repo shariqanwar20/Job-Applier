@@ -383,3 +383,11 @@ def test_a_page_that_breaks_mid_walk_gets_a_stop_banner(setup):
     result = prepare(page, target, VALUES, cfg, rules)
     assert page.clicks == ["Next"] and result["pages"] == 1
     assert "JobApplier stopped: Error; continue by hand." in page.banners[-1][1][-1]
+
+
+@pytest.mark.parametrize(
+    "text", ["Continue to submission", "Continue and finalize", "Continue & post", "Apply now"]
+)
+def test_the_click_binding_refuses_submit_word_starts(text, field_rules):
+    assert not field_rules.next_text.search(text)
+    assert field_rules.next_text.search("Continue application")

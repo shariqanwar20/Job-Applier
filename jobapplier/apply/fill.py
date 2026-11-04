@@ -162,6 +162,7 @@ class FieldRules:
     next_deny: frozenset[str]
     next_text: re.Pattern  # for binding the click to the raw text on screen
     submit: re.Pattern
+    submit_stem: re.Pattern
     sign_in_button: re.Pattern
 
     @classmethod
@@ -188,15 +189,17 @@ class FieldRules:
             int(apply_cfg["next_max_extra_words"]),
             frozenset(map(norm, apply_cfg["next_deny_words"])),
             re.compile(
-                rf"^(?!.*\b({never})\b)\W*({_raw(nexts)})\b",
+                rf"^(?!.*\b({never})\b)(?!.*\b({_raw(apply_cfg['submit_stems'])}))\W*({_raw(nexts)})\b",
                 re.IGNORECASE | re.DOTALL,
             ),
             words(apply_cfg["submit_words"]),
+            words(apply_cfg["submit_stems"], prefix=True),
             words(apply_cfg["sign_in_button_words"]),
         )
 
     def is_submit_button(self, button: dict) -> bool:
-        return any(self.submit.search(norm(button[k])) for k in _SOURCES)
+        names = [norm(button[k]) for k in _SOURCES]
+        return any(self.submit.search(n) or self.submit_stem.search(n) for n in names)
 
     def is_next(self, button: dict) -> bool:
         """A next-step button: its visible text starts with a next phrase and has at most next_max_extra more

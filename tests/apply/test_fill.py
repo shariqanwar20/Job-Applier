@@ -529,3 +529,28 @@ def test_the_owners_own_contact_fields_are_filled(label, want, rules):
 )
 def test_another_persons_contact_fields_are_skipped(label, rules):
     assert one(field(label=label), rules) == []
+
+
+SUBMIT_LIKE = [
+    "Continue to submission",
+    "Continue to confirmation",
+    "Continue to completion",
+    "Next - submitting",
+    "Continue and finalize",
+    "Continue — final step",
+    "Continue & post",
+    "Next: send application",
+    "Apply",
+    "Apply now",
+]
+
+
+@pytest.mark.parametrize("text", SUBMIT_LIKE)
+def test_submit_word_starts_refuse_a_next_button_and_stop_the_walk(text, rules):
+    assert not rules.is_next(button("1", text))
+    assert rules.is_submit_button(button("1", text))
+
+
+def test_continue_application_is_still_a_next_button(rules):
+    assert rules.is_next(button("1", "Continue application"))
+    assert not rules.is_submit_button(button("1", "Continue application"))
