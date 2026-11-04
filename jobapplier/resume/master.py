@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass
 
-__all__ = ["Item", "MasterError", "parse", "plain", "render"]
+__all__ = ["Item", "MasterError", "anchor", "lines_per_run", "parse", "plain", "render", "runs"]
 
 _COMMENT = re.compile(r"(?<!\\)%")
 _MARKER = re.compile(r"\s*id:(\S*)(.*)$")
@@ -90,8 +90,13 @@ def plain(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"(?<!\\)[{}]", "", text)).strip()
 
 
-def _runs(items: list[Item]) -> list[list[Item]]:
-    """Items on consecutive lines: one list (one job's bullets), whose items stay together."""
+def anchor(entry: dict) -> str:
+    """The master id a plan entry belongs to: its own id, or the source of an added line."""
+    return entry["source"] if "new" in entry else entry["id"]
+
+
+def runs(items: list[Item]) -> list[list[Item]]:
+    """Items on consecutive lines: one entry (a job's or project's lines), whose items stay together."""
     runs: list[list[Item]] = []
     for item in sorted(items, key=lambda i: i.line_no):
         if runs and runs[-1][-1].line_no == item.line_no - 1:
@@ -99,6 +104,17 @@ def _runs(items: list[Item]) -> list[list[Item]]:
         else:
             runs.append([item])
     return runs
+
+
+def lines_per_run(items: list[Item], plan: list[dict]) -> list[int]:
+    """How many lines render prints for each of runs(items): the plan's, plus required lines it omits."""
+    out = []
+    for run in runs(items):
+        ids = {i.id for i in run}
+        mine = [e for e in plan if anchor(e) in ids]
+        printed = {e["id"] for e in mine if "new" not in e}
+        out.append(len(mine) + sum(i.required and i.id not in printed for i in run))
+    return out
 
 
 def _line(entry: dict, items_by_id: dict[str, Item], lines: list[str]) -> str:
@@ -121,9 +137,9 @@ def render(tex: str, items_by_id: dict[str, Item], plan: list[dict]) -> str:
     lines = tex.splitlines(keepends=True)
     out_of: dict[int, list[str]] = {}  # first line number of a run -> its new lines
     skip = set()
-    for run in _runs(list(items_by_id.values())):
+    for run in runs(list(items_by_id.values())):
         ids = {i.id for i in run}
-        entries = [e for e in plan if (e["source"] if "new" in e else e["id"]) in ids]
+        entries = [e for e in plan if anchor(e) in ids]
         printed = {e["id"] for e in entries if "new" not in e}  # an added line never stands in for its source
         for pos, item in enumerate(run):
             if item.required and item.id not in printed:

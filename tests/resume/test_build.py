@@ -67,7 +67,7 @@ def test_build_timeout_raises(tmp_path):
 def test_fit_drops_optional_lines_until_one_page(tmp_path, config):
     fake = FakeTectonic(lambda tex: 1 if bullets(tex) <= 4 else 2)
     out = tmp_path / "r.pdf"
-    assert fit(TEX, ITEMS, ALL, out, config["tailor"], tmp_path, fake) == []
+    assert fit(TEX, ITEMS, ALL, out, {**config["tailor"], "min_lines_per_entry": 1}, tmp_path, fake) == []
     # Experience has the most optional lines (3), then ties Projects (2 each) and goes first, then Projects
     last = fake.texts[-1]
     assert "on-call" not in last and "billing" not in last and "offline maps" not in last
@@ -86,7 +86,8 @@ def test_fit_never_drops_required_lines(tmp_path, config):
 
 def test_fit_stops_after_max_drops(tmp_path, config):
     fake = FakeTectonic(lambda tex: 2)
-    problems = fit(TEX, ITEMS, ALL, tmp_path / "r.pdf", {**config["tailor"], "max_drops": 2}, tmp_path, fake)
+    cfg = {**config["tailor"], "max_drops": 2, "min_lines_per_entry": 1}
+    problems = fit(TEX, ITEMS, ALL, tmp_path / "r.pdf", cfg, tmp_path, fake)
     assert len(fake.calls) == 3 and "2 pages" in problems[0]
 
 
@@ -115,3 +116,11 @@ def test_fit_passes_the_configured_tectonic_timeout(tmp_path, config):
     fake = FakeTectonic()
     fit(TEX, ITEMS, ALL, tmp_path / "r.pdf", {**config["tailor"], "tectonic_timeout": 42}, tmp_path, fake)
     assert fake.calls[0][1]["timeout"] == 42
+
+
+def test_fit_never_takes_an_entry_below_the_minimum(tmp_path, config):
+    fake = FakeTectonic(lambda tex: 2)
+    problems = fit(TEX, ITEMS, ALL, tmp_path / "r.pdf", config["tailor"], tmp_path, fake)
+    assert "2 pages" in problems[0] and len(fake.calls) == 2  # only exp1 had a line to spare
+    last = fake.texts[-1]
+    assert bullets(last) == 6 and "Tools:" in last and "offline maps" in last and "on-call" in last

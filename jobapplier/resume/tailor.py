@@ -3,7 +3,7 @@
 import re
 
 from jobapplier.resume.grounding import escape, grounding_problems, style_problems
-from jobapplier.resume.master import Item, plain
+from jobapplier.resume.master import Item, anchor, lines_per_run, plain, runs
 
 __all__ = ["tailor"]
 
@@ -46,6 +46,9 @@ Return the lines to print, section by section, in the order to print them. Each 
 
 Rules:
 - Keep every line unless it plainly does not help with this job. Leave out at most {max_omit} lines in total.
+- Prefer rewording a weak line toward the job, or replacing it with an added line that comes from it,
+  over leaving it out.
+- Keep at least {min_lines} lines for every job and project.
 - Always keep the lines marked (required).
 - Within each job or project, put the lines that matter most for this job first.
 - Reword a line to use the job's terms where the master line supports them. Keep its facts and numbers.
@@ -66,7 +69,12 @@ def _prompt(items: list[Item], job: dict, cfg: dict) -> str:
             lines.append(f"\n## {section}")
         lines.append(f"- {i.id}{' (required)' if i.required else ''}: {plain(i.text)}")
     return (
-        _RULES.format(max_words=t["max_words"], max_omit=t["max_omit"], banned=", ".join(t["banned_phrases"]))
+        _RULES.format(
+            max_words=t["max_words"],
+            max_omit=t["max_omit"],
+            min_lines=t["min_lines_per_entry"],
+            banned=", ".join(t["banned_phrases"]),
+        )
         + f"\nJob: {job['title']} at {job['company']}\n\nJob description:\n"
         + job["description"][: t["max_description_chars"]]
         + "\n\nMaster resume lines (id: text):"
@@ -81,29 +89,27 @@ def _check(
     """(plan, grounding problems, style problems); a rejected line is already back to its master text."""
     plan, problems, style = [], [], []
     for e in (x for s in answer.get("sections", []) for x in s.get("items", [])):
-        anchor = e.get("source") if "new" in e else e.get("id")
-        if anchor not in by_id:
-            problems.append(f"{anchor}: not a master id; line left out")
+        key = e.get("source") if "new" in e else e.get("id")
+        if key not in by_id:
+            problems.append(f"{key}: not a master id; line left out")
             continue
         text = e.get("new", e.get("text"))
-        master = plain(by_id[anchor].text)
+        master = plain(by_id[key].text)
         if text is None or ("new" not in e and text == master):
-            plan.append({"id": anchor})
+            plan.append({"id": key})
             continue
         if not re.search(r"[A-Za-z]", text):
-            problems.append(f"{anchor}: the new text has no words; kept the master line")
+            problems.append(f"{key}: the new text has no words; kept the master line")
         elif why := grounding_problems(text, master, cfg["tailor"], job_text):
-            problems.append(f"{anchor}: {'; '.join(why)}; kept the master line")
+            problems.append(f"{key}: {'; '.join(why)}; kept the master line")
         elif why := style_problems(text, cfg["tailor"]):
-            style.append(f"{anchor}: {'; '.join(why)}")
+            style.append(f"{key}: {'; '.join(why)}")
         else:
             plan.append(
-                {"new": escape(text), "source": anchor}
-                if "new" in e
-                else {"id": anchor, "text": escape(text)}
+                {"new": escape(text), "source": key} if "new" in e else {"id": key, "text": escape(text)}
             )
             continue
-        plan.append({"id": anchor})
+        plan.append({"id": key})
     seen: set[str] = set()
     unique = []
     for e in plan:  # the one dedupe; a reverted added line can repeat its source
@@ -112,6 +118,19 @@ def _check(
         seen.add(e.get("id", ""))
         unique.append(e)
     return unique, problems, style
+
+
+def _fill(plan: list[dict], items: list[Item], minimum: int) -> list[dict]:
+    """Puts omitted master lines back, in master order, into each entry printed with fewer than minimum."""
+    for run, count in zip(runs(items), lines_per_run(items, plan), strict=True):
+        printed = {e["id"] for e in plan if "new" not in e}
+        omitted = [{"id": i.id} for i in run if not i.required and i.id not in printed]
+        back = omitted[: max(0, minimum - count)]
+        if back:
+            ids = {i.id for i in run}
+            at = max((k + 1 for k, e in enumerate(plan) if anchor(e) in ids), default=len(plan))
+            plan = plan[:at] + back + plan[at:]
+    return plan
 
 
 def tailor(items: list[Item], job: dict, cfg: dict, llm_run) -> tuple[list[dict], list[str]]:
@@ -128,4 +147,5 @@ def tailor(items: list[Item], job: dict, cfg: dict, llm_run) -> tuple[list[dict]
             prompt + "\nYour last answer broke these rules. Fix them:\n" + "\n".join(f"- {s}" for s in style)
         )
         plan, problems, style = _check(llm_run(retry, _SCHEMA, model, writing=True), by_id, cfg, job_text)
+    plan = _fill(plan, items, cfg["tailor"]["min_lines_per_entry"])  # owner: reword or replace, not remove
     return plan, problems + [f"{s}; kept the master line" for s in style]

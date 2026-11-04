@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 
 from pypdf import PdfReader
 
-from jobapplier.resume.master import Item, render
+from jobapplier.resume.master import Item, anchor, lines_per_run, render, runs
 
 __all__ = ["BuildError", "build", "fit", "pdf_path"]
 
@@ -40,12 +40,18 @@ def build(
     return pages
 
 
-def _drop_one(plan: list[dict], by_id: dict[str, Item]) -> list[dict] | None:
-    """plan less the last optional line of the section with the most; None if only required lines remain."""
+def _drop_one(plan: list[dict], items: list[Item], minimum: int) -> list[dict] | None:
+    """plan less the last optional line of the section with the most that can go; None when none can.
+
+    A line can go when it is not required and its entry (job or project) keeps at least minimum lines.
+    """
+    by_id = {i.id: i for i in items}
+    run_of = {i.id: n for n, run in enumerate(runs(items)) for i in run}
+    sizes = lines_per_run(items, plan)
     optional: dict[str, list[int]] = {}
     for n, e in enumerate(plan):
-        item = by_id[e.get("source") or e["id"]]
-        if "new" in e or not item.required:
+        item = by_id[anchor(e)]
+        if ("new" in e or not item.required) and sizes[run_of[item.id]] > minimum:
             optional.setdefault(item.section, []).append(n)
     if not optional:
         return None
@@ -62,7 +68,10 @@ def fit(
     search_dir: Path,
     runner=subprocess.run,
 ) -> list[str]:
-    """Builds out_pdf, dropping optional lines until it is one page. Returns problems (empty when it fits)."""
+    """Builds out_pdf, dropping optional lines until it is one page. Returns problems (empty when it fits).
+
+    Never drops a required line, nor a line that would leave its entry under min_lines_per_entry.
+    """
     by_id = {i.id: i for i in items}
     for drops in range(cfg["max_drops"] + 1):
         pages = build(
@@ -70,7 +79,7 @@ def fit(
         )
         if pages <= 1:
             return []
-        smaller = _drop_one(plan, by_id) if drops < cfg["max_drops"] else None
+        smaller = _drop_one(plan, items, cfg["min_lines_per_entry"]) if drops < cfg["max_drops"] else None
         if smaller is None:
             break
         plan = smaller

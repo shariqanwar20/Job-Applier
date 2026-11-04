@@ -1,5 +1,7 @@
 import pathlib
 
+import pytest
+
 from jobapplier.resume.master import parse
 from jobapplier.resume.tailor import tailor
 
@@ -16,6 +18,12 @@ class FakeLlm:
         return self.answers.pop(0)
 
 
+@pytest.fixture(autouse=True)
+def one_line_floor(config):
+    """Most tests check one line's handling; the per-entry minimum has its own tests below."""
+    config["tailor"]["min_lines_per_entry"] = 0
+
+
 def answer(*items):
     return {"sections": [{"section": "Experience", "items": list(items)}]}
 
@@ -29,7 +37,7 @@ def test_prompt_names_the_skills_job_and_master_lines(config):
     for part in (
         "humanizer",
         "asd-ste100",
-        "at most 3 lines",
+        f"at most {config['tailor']['max_omit']} lines",
         "Backend Developer",
         "Acme",
         "We use Go and PostgreSQL.",
@@ -121,3 +129,36 @@ def test_empty_or_wordless_text_keeps_the_master_line(config):
     plan, problems = tailor(ITEMS, JOB, config, llm)
     assert plan == [{"id": "skills.lang"}, {"id": "exp1.b2"}]
     assert len(problems) == 2 and problems[0].startswith("skills.lang:") and "no words" in problems[0]
+
+
+def test_entries_cut_below_the_minimum_get_master_lines_back_in_master_order(config):
+    config["tailor"]["min_lines_per_entry"] = 2
+    llm = FakeLlm(answer({"id": "exp1.b1"}, {"id": "exp2.b1"}, {"id": "proj1.b2"}, {"id": "skills.lang"}))
+    plan, problems = tailor(ITEMS, JOB, config, llm)
+    assert plan == [
+        {"id": "exp1.b1"},
+        {"id": "exp1.b2"},
+        {"id": "exp2.b1"},
+        {"id": "exp2.b2"},
+        {"id": "proj1.b2"},
+        {"id": "proj1.b1"},
+        {"id": "skills.lang"},
+        {"id": "skills.tools"},
+    ]
+    assert problems == []
+
+
+def test_a_required_line_the_plan_omits_counts_toward_the_minimum(config):
+    config["tailor"]["min_lines_per_entry"] = 2
+    plan, _ = tailor(ITEMS, JOB, config, FakeLlm(answer({"id": "exp2.b2"})))
+    assert {"id": "exp1.b2"} in plan and {"id": "exp1.b3"} not in plan  # exp1.b1 is printed anyway
+    assert {"id": "proj1.b1"} in plan and {"id": "proj1.b2"} in plan
+
+
+def test_the_prompt_prefers_rewording_and_states_the_minimum(config):
+    config["tailor"]["min_lines_per_entry"] = 2
+    llm = FakeLlm(answer())
+    tailor(ITEMS, JOB, config, llm)
+    p = llm.calls[0]["prompt"]
+    assert "Leave out at most 2 lines" in p and "at least 2 lines for every job and project" in p
+    assert "Prefer rewording a weak line toward the job" in p
