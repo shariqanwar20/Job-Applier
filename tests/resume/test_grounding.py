@@ -135,3 +135,13 @@ def test_inflected_inflating_verbs_are_caught(verb, t):
 
 def test_escape_maps_characters_plain_latex_prints_wrongly():
     assert escape("a<b>c|d") == r"a\textless{}b\textgreater{}c\textbar{}d"
+
+
+def test_one_is_a_number_even_when_the_master_line_says_on(t):
+    assert grounding_problems("Served one clinic", "Served clinics on call", t)
+
+
+def test_inflating_verbs_match_by_stem_not_by_listed_form(t):
+    narrow = {**t, "inflating_verbs": ["owned"]}
+    problems = grounding_problems("Owning the REST API in Go", "Built the REST API in Go", narrow)
+    assert problems and "overstates" in " ".join(problems)

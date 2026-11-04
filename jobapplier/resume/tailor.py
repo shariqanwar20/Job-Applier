@@ -124,7 +124,9 @@ def _fill(plan: list[dict], items: list[Item], minimum: int) -> list[dict]:
     """Puts omitted master lines back, in master order, into each entry printed with fewer than minimum."""
     for run, count in zip(runs(items), lines_per_run(items, plan), strict=True):
         printed = {e["id"] for e in plan if "new" not in e}
-        omitted = [{"id": i.id} for i in run if not i.required and i.id not in printed]
+        reworked = {e["source"] for e in plan if "new" in e}  # already on the page in another form: last
+        spare = [i for i in run if not i.required and i.id not in printed]
+        omitted = [{"id": i.id} for i in sorted(spare, key=lambda i: i.id in reworked)]
         back = omitted[: max(0, minimum - count)]
         if back:
             ids = {i.id for i in run}

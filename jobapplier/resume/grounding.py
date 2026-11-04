@@ -71,13 +71,16 @@ def grounding_problems(text: str, source: str, cfg: dict, job_text: str = "") ->
     # Number words match exactly (the list has the plurals): the stem of "one" is "on".
     numbers, job = {w.lower() for w in cfg["number_words"]}, _stems(_words(job_text))
     common = known | _stems(cfg["common_words"])
+    exact = {w.lower() for w in _words(source)}
     for w in dict.fromkeys(_words(text)):
         s = _stem(w)
+        if w.lower() in numbers:  # before the stem test below, which would let "one" through on "on"
+            if w.lower() not in exact:
+                out.append(f"the number {w} is not in the master line")
+            continue
         if s in flagged or s in src:
             continue
-        if w.lower() in numbers:
-            out.append(f"the number {w} is not in the master line")
-        elif s in job and s not in common:
+        if s in job and s not in common:
             out.append(f"'{w}' is from the job description, not the master line")
     modest = src & _stems(cfg["modest_verbs"])
     out += [

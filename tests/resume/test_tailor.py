@@ -162,3 +162,16 @@ def test_the_prompt_prefers_rewording_and_states_the_minimum(config):
     p = llm.calls[0]["prompt"]
     assert "Leave out at most 2 lines" in p and "at least 2 lines for every job and project" in p
     assert "Prefer rewording a weak line toward the job" in p
+
+
+def test_the_refill_prefers_lines_not_already_reworked():
+    from jobapplier.resume.tailor import _fill
+
+    tex = (
+        "\\section{Work}\n"
+        "\\resumeItem{Built a REST API in Go} % id:a\n"
+        "\\resumeItem{Wrote tests in Python} % id:b\n"
+        "\\resumeItem{Ran Docker builds} % id:c\n"
+    )
+    plan = _fill([{"new": "Built the REST API in Go", "source": "a"}], parse(tex), 2)
+    assert plan == [{"new": "Built the REST API in Go", "source": "a"}, {"id": "b"}]
