@@ -10,6 +10,7 @@ from jobapplier.apply.fill import (
     missing_required,
     next_button,
     plan,
+    read_fields,
     resume_input,
     salary_range,
 )
@@ -39,8 +40,17 @@ VALUES = {
 }
 
 
-def field(fid="1", label="", type="text", **kw):
+SHOWN = {"seen": True, "rect": [40, 300, 200, 24], "doc": [1200, 3000], "aria_hidden": False}
+SHOWN["clipped"] = False
+
+
+def field(fid="1", label="", type="text", visible=True, **kw):
+    """A field as read from the page: the visibility facts the page reports, and visible as the code
+    decides it from them."""
     return {
+        **SHOWN,
+        "seen": visible,
+        "labels": [],
         "id": fid,
         "type": type,
         "name": "",
@@ -50,7 +60,7 @@ def field(fid="1", label="", type="text", **kw):
         "value": "",
         "checked": False,
         "options": [],
-        "visible": True,
+        "visible": visible,
         "tabindex": None,
         "required": False,
         **kw,
@@ -299,3 +309,41 @@ def test_next_button_is_a_next_word_without_a_submit_word(rules):
     assert next_button([button("1", "Continue with Google")], rules)[0] is None  # a sign-in, not a step
     bid, why = next_button([button("1", "Add another")], rules)
     assert bid is None and "No Next button" in why
+
+
+class ReadPage:
+    def __init__(self, raw):
+        self.raw = raw
+
+    def evaluate(self, script):
+        return self.raw
+
+
+@pytest.mark.parametrize(
+    "hidden",
+    [
+        {"rect": [-10000, 300, 200, 24]},  # moved off-screen
+        {"rect": [40, 5000, 200, 24]},  # below the end of the document
+        {"seen": False},  # an ancestor with opacity 0 (checkVisibility says so)
+        {"clipped": True},  # inside a zero-height wrapper with overflow hidden
+        {"aria_hidden": True},  # inside [aria-hidden=true]
+        {"seen": False, "labels": [SHOWN]},  # a hidden input does not borrow its visible label
+    ],
+)
+def test_a_css_hidden_honeypot_is_never_filled(hidden, rules):
+    page = ReadPage([{**field("1", "Website"), **hidden}])
+    [f] = read_fields(page)
+    assert not f["visible"] and plan([f], VALUES, rules, "") == []
+
+
+def test_a_visible_field_and_a_radio_with_a_styled_label_are_filled(rules):
+    q = "Are you willing to relocate?"
+    radios = [
+        {**field("2", "Yes", type="radio", name="r", group=q), "seen": False, "labels": [SHOWN]},
+        {**field("3", "No", type="radio", name="r", group=q), "seen": False, "labels": [SHOWN]},
+    ]
+    fields = read_fields(ReadPage([field("1", "Website"), *radios]))
+    assert [a[:3] for a in plan(fields, VALUES, rules, "")] == [
+        ("fill", "1", "https://github.com/alex"),
+        ("check", "2", "Yes"),
+    ]

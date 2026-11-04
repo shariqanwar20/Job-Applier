@@ -35,19 +35,35 @@ _RESUME = re.compile(r"\b(resume|cv)\b")
 _AMOUNT = r"\d[\d,]*(?:\.\d+)?\s?[kK]?"
 _SALARY = re.compile(rf"\$\s?{_AMOUNT}\s*(?:-|\u2013|\u2014|to)\s*\$?\s?{_AMOUNT}")  # an en or em dash too
 
-_SHOWN = """
-  const shown = el => {
-    if (!el) return false;
-    const s = getComputedStyle(el), r = el.getBoundingClientRect();
-    return s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity) > 0
-      && r.width > 1 && r.height > 1;
+# What the page says about whether a person can see el; _visible decides from it. checkVisibility covers
+# display, visibility and opacity on el and its ancestors; the rest catches off-screen and clipped
+# honeypots.
+_FACTS = """
+  const facts = el => {
+    const r = el.getBoundingClientRect();
+    let clipped = false;
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const s = getComputedStyle(a);
+      if (s.overflow !== 'visible' && (a.clientHeight === 0 || a.clientWidth === 0)) {
+        clipped = true;
+        break;
+      }
+    }
+    const d = document.documentElement;
+    return {
+      seen: el.checkVisibility({checkOpacity: true, checkVisibilityCSS: true}),
+      rect: [r.left + scrollX, r.top + scrollY, r.width, r.height],
+      doc: [d.scrollWidth, d.scrollHeight],
+      aria_hidden: !!el.closest('[aria-hidden="true"]'),
+      clipped,
+    };
   };
 """
 _NAME = "el => (el.getAttribute('aria-label') || el.innerText || el.value || '').replace(/\\s+/g, ' ').trim()"
 # Marks every field with data-jobapplier so it is filled through a locator, never by position.
 _READ = (
     "() => {"
-    + _SHOWN
+    + _FACTS
     + """
   const text = el => el ? (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim() : '';
   const own = el => {
@@ -77,7 +93,7 @@ _READ = (
       group: type === 'radio' ? (text(legend) || before(el.closest('label') || el)) : '',
       value: type === 'select' ? (picked && el.value !== '' ? text(picked) : '') : (el.value || ''),
       checked: !!el.checked, options: type === 'select' ? [...el.options].map(text) : [],
-      visible: shown(el) || [...(el.labels || [])].some(shown),
+      ...facts(el), labels: type === 'radio' ? [...(el.labels || [])].map(facts) : [],
       tabindex: el.getAttribute('tabindex'),
       required: el.required || el.getAttribute('aria-required') === 'true',
     });
@@ -90,7 +106,7 @@ _READ = (
 # Links are left out: following one leaves the form.
 _BUTTONS = (
     "() => {"
-    + _SHOWN
+    + _FACTS
     + f"""
   const name = {_NAME};
   const out = [];
@@ -98,7 +114,7 @@ _BUTTONS = (
     .forEach((el, i) => {{
       if (el.tagName === 'A') return;
       el.setAttribute('data-jobapplier-button', String(i));
-      out.push({{id: String(i), name: name(el), visible: shown(el)}});
+      out.push({{id: String(i), name: name(el), ...facts(el)}});
     }});
   return out;
 }}"""
@@ -162,8 +178,20 @@ def group_radios(raw: list[dict]) -> list[dict]:
     return out
 
 
+def _visible(facts: dict) -> bool:
+    x, y, w, h = facts["rect"]
+    page_w, page_h = facts["doc"]
+    on_page = x + w > 0 and y + h > 0 and x < page_w and y < page_h
+    return facts["seen"] and w > 1 and h > 1 and on_page and not (facts["aria_hidden"] or facts["clipped"])
+
+
+def _shown(f: dict) -> bool:
+    # A styled radio often hides its native input behind a visible label; no other field may borrow one.
+    return _visible(f) or (f["type"] == "radio" and any(map(_visible, f["labels"])))
+
+
 def read_fields(page) -> list[dict]:
-    return group_radios(page.evaluate(_READ))
+    return group_radios([{**f, "visible": _shown(f)} for f in page.evaluate(_READ)])
 
 
 def _label(f: dict) -> str:
@@ -269,7 +297,7 @@ def fill_page(page, actions: list[tuple], timeout_ms: float) -> int:
 
 
 def read_buttons(page) -> list[dict]:
-    return page.evaluate(_BUTTONS)
+    return [{**b, "visible": _visible(b)} for b in page.evaluate(_BUTTONS)]
 
 
 def button_name(button) -> str:

@@ -9,7 +9,7 @@ from jobapplier.apply import browser
 from jobapplier.apply.browser import ClickRefusedError, chrome, prepare
 from jobapplier.apply.fill import FieldRules
 from jobapplier.apply.targets import Target
-from tests.apply.test_fill import VALUES, field
+from tests.apply.test_fill import SHOWN, VALUES, field
 
 
 class FakeLocator:
@@ -206,7 +206,7 @@ def test_click_next_clicks_a_next_button(field_rules):
 
 
 def btn(bid, name):
-    return {"id": bid, "name": name, "visible": True}
+    return {"id": bid, "name": name, **SHOWN}
 
 
 def screen(fields, *buttons, title="Apply"):
