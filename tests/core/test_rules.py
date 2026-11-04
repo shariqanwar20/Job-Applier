@@ -28,6 +28,8 @@ def test_norm():
         ("Lead Full Stack Developer", False),
         ("Salesforce Administrator", False),
         ("Junior CNC Programmer", False),
+        ("(CAN) Front End Checkout Team Associate", False),
+        ("Cashier / Front End Checkout Team Associate", False),
         ("Welding Robot Programmer", False),
         ("PLC Programmer", False),
         ("Machinist Programmer", False),

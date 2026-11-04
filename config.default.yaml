@@ -4,7 +4,7 @@ rules:
   # Whole words/phrases matched on the normalized title (lowercase, ASCII, punctuation -> space).
   include: [developer, engineer, programmer, software, full stack, fullstack, back end, backend, front end, frontend, sde, mobile, developpeur, developpeuse, ingenieur logiciel, ingenieure logiciel]
   # Seniority words that drop a title.
-  exclude: [senior, sr, staff, principal, lead, manager, director, architect, head of, cnc, welding, robot programmer, plc, machining, machinist, job developer, community developer, recreation, elders, cad, instructor, teacher, power system]
+  exclude: [senior, sr, staff, principal, lead, manager, director, architect, head of, cnc, welding, robot programmer, plc, machining, machinist, job developer, community developer, recreation, elders, cad, instructor, teacher, power system, cashier, checkout, team associate, store associate]
   # Postings whose FreeHire company type is listed are dropped.
   blocked_company_types: [outstaff, agency]
   # Recruiting and staffing companies, dropped (whole words in the company name).
