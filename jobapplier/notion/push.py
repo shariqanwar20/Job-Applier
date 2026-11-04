@@ -17,6 +17,7 @@ __all__ = [
     "prune",
     "push",
     "ready_rows",
+    "row_job_id",
     "set_status",
     "style_database",
 ]
@@ -232,6 +233,13 @@ def ensure_tailor_schema(client: Client, ds_id: str) -> None:
 
 def _select(page: dict, name: str) -> str | None:
     return ((page["properties"].get(name) or {}).get("select") or {}).get("name")
+
+
+def row_job_id(page: dict) -> str:
+    return "".join(
+        t.get("plain_text") or t["text"]["content"]
+        for t in (page["properties"].get("Job ID") or {}).get("rich_text", [])
+    )
 
 
 def _query_all(client: Client, ds_id: str, where: dict) -> list[dict]:

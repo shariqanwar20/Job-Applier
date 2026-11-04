@@ -21,7 +21,7 @@ from jobapplier.core import clusters
 from jobapplier.core.rules import Rules
 from jobapplier.mail.gmail import Gmail, MailError, sign_in
 from jobapplier.notion.client import NotionError, make_client
-from jobapplier.notion.push import create_database, style_database
+from jobapplier.notion.push import create_database, ready_rows, row_job_id, style_database
 from jobapplier.pipelines.apply import run_apply
 from jobapplier.pipelines.discover import run_discover
 from jobapplier.pipelines.tailor import run_tailor
@@ -94,7 +94,32 @@ def _run() -> int:
         if code == 0:
             stamp.parent.mkdir(exist_ok=True)
             stamp.touch()
-    return _tailor(None) or code
+    code = _tailor(None) or code
+    return _notify_ready() or code
+
+
+def _notify_ready() -> int:
+    """One notice when rows became ready to apply since the last tick. Never opens a browser: the owner
+    may be away."""
+    try:
+        cfg = load_config(_ROOT)
+        token, ds_id = os.environ.get("NOTION_TOKEN"), cfg["notion"]["data_source_id"]
+        if not (token and ds_id):
+            return 0  # tailor already reported the missing setup
+        (_ROOT / "data").mkdir(exist_ok=True)
+        with locked(str(_ROOT / "data" / "run.lock")) as got:
+            if not got:
+                return 0
+            conn = clusters.connect(str(_ROOT / "data" / "jobs.db"))
+            new = clusters.newly_ready(conn, [row_job_id(p) for p in ready_rows(make_client(token), ds_id)])
+            conn.commit()
+        if new:
+            what = f"{len(new)} application{'s' if len(new) > 1 else ''} ready"
+            notify("JobApplier", f"{what}: run `uv run python -m jobapplier apply`")
+        return 0
+    except Exception:
+        _log.exception("ready check failed")
+        return 1
 
 
 def _apply(job_id: str | None) -> int:

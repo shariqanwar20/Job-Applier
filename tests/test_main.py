@@ -316,6 +316,7 @@ def test_run_discovers_only_when_the_last_discover_is_old_then_tailors(monkeypat
     monkeypatch.setattr(m, "load_config", lambda root: {"schedule": {"discover_every_minutes": 120}})
     monkeypatch.setattr(m, "_discover", lambda: calls.append("discover") or 0)
     monkeypatch.setattr(m, "_tailor", lambda job: calls.append("tailor") or 0)
+    monkeypatch.setattr(m, "_notify_ready", lambda: 0)
     assert m._run() == 0 and calls == ["discover", "tailor"]
     assert m._run() == 0 and calls == ["discover", "tailor", "tailor"]  # discovered just now
     stamp = tmp_path / "data" / "last_discover"
@@ -371,3 +372,37 @@ def test_apply_opens_the_job_in_chrome_and_marks_it_submitted(home, monkeypatch,
     assert page.done == [("fill", "1", "Alex")]
     assert n.rows["p1"]["Status"] == {"select": {"name": "Submitted"}}
     assert "opened J1 (Affirm)" in capsys.readouterr().out
+
+
+def _ready_row(job_id):
+    return {
+        "Job ID": {"rich_text": [{"text": {"content": job_id}}]},
+        "Status": {"select": {"name": "Tailored"}},
+        "Resume": {"files": [{"name": f"A_{job_id}.pdf"}]},
+    }
+
+
+def test_run_notifies_once_per_newly_ready_row_and_opens_no_browser(home, monkeypatch):
+    root, notes = home
+    set_ids(root)
+    n = FakeNotion()
+    n.rows = {"p1": _ready_row("J1"), "p2": _ready_row("J2")}
+    monkeypatch.setattr(app, "make_client", lambda token: n)
+    monkeypatch.setattr(app, "_discover", lambda: 0)
+    monkeypatch.setattr(app, "_tailor", lambda job: 0)
+    monkeypatch.setattr(app, "chrome", lambda *a: pytest.fail("run must not open Chrome"))
+    run = "uv run python -m jobapplier apply"
+    assert app.main(["run"]) == 0
+    assert notes == [("JobApplier", f"2 applications ready: run `{run}`")]
+    assert app.main(["run"]) == 0 and len(notes) == 1  # the same rows: no second notice
+    n.rows["p3"] = _ready_row("J3")
+    assert app.main(["run"]) == 0
+    assert notes[-1] == ("JobApplier", f"1 application ready: run `{run}`")
+
+
+def test_run_checks_ready_rows_even_when_tailor_fails(home, monkeypatch):
+    calls = []
+    monkeypatch.setattr(app, "_discover", lambda: 0)
+    monkeypatch.setattr(app, "_tailor", lambda job: 1)
+    monkeypatch.setattr(app, "_notify_ready", lambda: calls.append(1) or 0)
+    assert app.main(["run"]) == 1 and calls == [1]
