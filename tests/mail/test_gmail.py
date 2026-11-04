@@ -84,6 +84,7 @@ def test_extract_code():
     assert extract_code("© 2026 Acme. Your security code: 7731") == "7731"
     assert extract_code("Welcome to Acme, no digits here") is None
     assert extract_code("Order 123456789012 shipped; code of conduct") is None  # too long, not a code
+    assert extract_code("482913 is your Acme code. © 2026 Acme Inc") == "482913"  # a year is never the code
 
 
 def test_nothing_is_read_or_called_until_first_use(mail_cfg, tmp_path):
@@ -234,7 +235,7 @@ def test_sign_in_runs_the_loopback_flow_and_saves_a_private_token(mail_cfg, tmp_
     sign_in(mail_cfg, tmp_path, flow_factory=factory)
     token = tmp_path / mail_cfg["token"]
     assert seen["factory"] == (str(tmp_path / mail_cfg["client_secrets"]), SCOPES)
-    assert seen["server"] == {"port": 0, "open_browser": True}
+    assert seen["server"] == {"port": 0, "open_browser": True, "prompt": "consent"}
     assert stat.S_IMODE(token.stat().st_mode) == 0o600 and json.loads(token.read_text())["token"]
 
 
@@ -254,3 +255,10 @@ def test_the_only_scope_is_read_only_and_only_gets_go_to_gmail():
     assert gmail._BASE == "https://gmail.googleapis.com/gmail/v1/users/me"
     assert set(re.findall(r"https?://([\w.]+)", src)) == {"gmail.googleapis.com", "www.googleapis.com"}
     assert not re.search(r"\.(post|put|patch|delete|request|send|modify|trash)\(|requests\.|urllib", src)
+
+
+def test_a_malformed_message_is_a_mail_error(mail_cfg, tmp_path):
+    api = FakeApi({"m1": {"internalDate": "1", "payload": {}}})
+    g = Gmail(mail_cfg, tmp_path, api=api, credentials_loader=lambda p: FakeCreds())
+    with pytest.raises(MailError, match="malformed"):
+        g.search("x")

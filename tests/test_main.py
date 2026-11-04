@@ -212,9 +212,9 @@ def test_discover_uses_mail_when_the_token_file_exists(home, monkeypatch):
     set_ids(root)
     (root / "data").mkdir()
     (root / "data" / "gmail_token.json").write_text("{}")
-    n, mail, made = FakeNotion(), FakeMail({"Affirm": "2026-05-02: Application received"}), []
+    n, mail, made = FakeNotion(), FakeMail({"affirm": "2026-05-02: Application received"}), []
     _one_posting(monkeypatch, n)
     monkeypatch.setattr(app, "Gmail", lambda cfg, r: made.append((cfg["token"], r)) or mail)
     assert app.main(["discover"]) == 0
-    assert made == [("data/gmail_token.json", root)] and mail.calls == ["Affirm"]
+    assert made == [("data/gmail_token.json", root)] and mail.calls == ["affirm"]
     assert n.rows["page-1"]["Flags"]["multi_select"] == [{"name": "Applied before"}]

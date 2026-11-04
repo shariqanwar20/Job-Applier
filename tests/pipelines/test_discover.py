@@ -130,7 +130,7 @@ def test_prune_errors_join_the_list(rules, config):
 
 
 def test_run_discover_flags_rows_for_companies_applied_to(rules, config):
-    n, mail = FakeNotion(), FakeMail({"Affirm": "2026-05-02: Thank you for applying to Affirm"})
+    n, mail = FakeNotion(), FakeMail({"affirm": "2026-05-02: Thank you for applying to Affirm"})
     srcs = [FakeSource("indeed", ([AFFIRM_INDEED], None))]
     r = run_discover(connect(":memory:"), config, rules, srcs, n, NOW, mail)
     assert [f["name"] for f in n.rows["page-1"]["Flags"]["multi_select"]] == ["Applied before"]

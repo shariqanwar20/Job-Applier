@@ -185,13 +185,13 @@ def _row_flags(n, company):
 
 def test_push_flags_a_row_whose_company_was_applied_to_and_logs_the_hit(rules, caplog):
     conn, n = seed(rules), FakeNotion()
-    mail = FakeMail({"Co2": "2026-09-01: Thank you for applying to Co2"})
+    mail = FakeMail({"co2": "2026-09-01: Thank you for applying to Co2"})
     with caplog.at_level("INFO", logger="jobapplier"):
         assert push(conn, n, "ds1", rules, mail) == (3, [])
     assert "Applied before" in _row_flags(n, "Co2")
     assert "Applied before" not in _row_flags(n, "Co1") + _row_flags(n, "Co3")
     assert "2026-09-01: Thank you for applying to Co2" in caplog.text
-    assert mail.calls == ["Co1", "Co2", "Co3"]
+    assert mail.calls == ["co1", "co2", "co3"]
 
 
 def test_push_asks_mail_once_per_company_and_only_for_new_rows(rules):
@@ -214,14 +214,14 @@ def test_push_asks_mail_once_per_company_and_only_for_new_rows(rules):
     conn.commit()
     n, mail = FakeNotion(), FakeMail()
     n.rows["old"] = {"Job ID": {"rich_text": [{"text": {"content": "J1"}}]}}  # J1 exists in Notion already
-    assert push(conn, n, "ds1", rules, mail) == (1, []) and mail.calls == ["Co1"]
+    assert push(conn, n, "ds1", rules, mail) == (1, []) and mail.calls == ["co1"]
 
 
 def test_push_with_a_failing_mail_records_one_error_and_still_pushes_every_row(rules):
     conn, n = seed(rules), FakeNotion()
     mail = FakeMail(error=MailError("mail: HTTP 500"))
     assert push(conn, n, "ds1", rules, mail) == (3, ["mail: HTTP 500"])
-    assert mail.calls == ["Co1"] and all("Applied before" not in _row_flags(n, f"Co{i}") for i in (1, 2, 3))
+    assert mail.calls == ["co1"] and all("Applied before" not in _row_flags(n, f"Co{i}") for i in (1, 2, 3))
 
 
 def test_push_without_mail_adds_no_flag(rules):

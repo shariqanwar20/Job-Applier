@@ -9,6 +9,7 @@ from jobapplier.models import Posting
 __all__ = [
     "assign",
     "connect",
+    "employer",
     "mark_pruned",
     "mark_pushed",
     "members",
@@ -45,10 +46,14 @@ def connect(path: str) -> sqlite3.Connection:
     return conn
 
 
-def _cluster_key(company: str, title: str, rules: Rules) -> str:
+def employer(company: str, rules: Rules) -> str:
+    """The company name without noise words or parentheticals: "Acme Inc. (Canada)" -> "acme"."""
     # A parenthetical is a country or an abbreviation of the name ("(AWS)"): the same employer varies there.
-    words = [w for w in norm(_PARENS.sub(" ", company)).split() if w not in rules.company_noise]
-    name = " ".join(words)
+    return " ".join(w for w in norm(_PARENS.sub(" ", company)).split() if w not in rules.company_noise)
+
+
+def _cluster_key(company: str, title: str, rules: Rules) -> str:
+    name = employer(company, rules)
     return rules.company_aliases.get(name, name) + "|" + norm(_PARENS.sub(" ", title))
 
 

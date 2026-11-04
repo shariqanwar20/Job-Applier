@@ -26,6 +26,7 @@ _METADATA = [
     ("metadataHeaders", "Date"),
 ]
 _AFTER = re.compile(r"\b(?:code|verification)\b\D{0,40}?(?<!\d)(\d{4,8})(?!\d)", re.IGNORECASE)
+_YEAR = re.compile(r"(?:19|20)\d\d")
 _BEFORE = re.compile(r"(?<!\d)(\d{4,8})(?!\d)\D{0,40}?\b(?:code|verification)\b", re.IGNORECASE)
 
 
@@ -36,10 +37,14 @@ class MailError(Exception):
 def extract_code(text: str) -> str | None:
     """A 4-8 digit code within 40 characters of "code" or "verification"; the form after it wins.
 
-    After first so that a footer year ("(c) 2026 ... code: 7731") is not read as the code.
+    After first so that a footer year ("(c) 2026 ... code: 7731") is not read as the code; a bare year is
+    never taken.
     """
-    m = _AFTER.search(text) or _BEFORE.search(text)
-    return m.group(1) if m else None
+    for pattern in (_AFTER, _BEFORE):
+        for m in pattern.finditer(text):
+            if not _YEAR.fullmatch(m.group(1)):
+                return m.group(1)
+    return None
 
 
 def _load_credentials(path: Path) -> Credentials:
@@ -49,8 +54,8 @@ def _load_credentials(path: Path) -> Credentials:
 def _save_token(path: Path, creds) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+        os.fchmod(f.fileno(), 0o600)  # O_CREAT's mode does not apply to a file that already exists
         f.write(creds.to_json())
-    path.chmod(0o600)  # O_CREAT's mode does not apply to a file that already exists
 
 
 def sign_in(cfg: dict, root: Path, flow_factory=InstalledAppFlow.from_client_secrets_file) -> None:
@@ -58,7 +63,11 @@ def sign_in(cfg: dict, root: Path, flow_factory=InstalledAppFlow.from_client_sec
     secrets = root / cfg["client_secrets"]
     if not secrets.exists():
         raise MailError(f"mail: put the OAuth client JSON at {cfg['client_secrets']} (see README, Mail)")
-    creds = flow_factory(str(secrets), SCOPES).run_local_server(port=0, open_browser=True)
+    creds = flow_factory(str(secrets), SCOPES).run_local_server(
+        port=0,
+        open_browser=True,
+        prompt="consent",  # else a repeat sign-in gets no refresh token
+    )
     _save_token(root / cfg["token"], creds)
 
 
@@ -109,6 +118,12 @@ class Gmail:
     def search(self, raw_query: str, limit: int = 25) -> list[dict]:
         """Gmail search syntax; the newest `limit` messages as subject, sender, received and preview."""
         listed = self._get("/messages", [("q", raw_query), ("maxResults", limit)])
+        try:
+            return self._parse(listed)
+        except (KeyError, TypeError, ValueError):  # an unexpected response shape must not stop the run
+            raise MailError("mail: malformed response") from None
+
+    def _parse(self, listed: dict) -> list[dict]:
         out = []
         for ref in listed.get("messages", []):
             m = self._get(f"/messages/{ref['id']}", _METADATA)

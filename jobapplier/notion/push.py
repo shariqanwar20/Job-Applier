@@ -132,13 +132,14 @@ def push(conn, client: Client, ds_id: str, rules, mail=None) -> tuple[int, list[
             # Look up first: a crash after the create but before the commit must not duplicate the row.
             page_id = _find_page(client, ds_id, job_id)
             if page_id is None:
-                if mail is not None and s["company"] not in applied:
+                name = clusters.employer(s["company"], rules)  # mail says "Acme", not "Acme Inc."
+                if mail is not None and name not in applied:
                     try:
-                        applied[s["company"]] = mail.applied_before(s["company"])
+                        applied[name] = mail.applied_before(name)
                     except MailError as exc:
                         errors.append(str(exc))
                         mail = None
-                if hit := applied.get(s["company"]):
+                if hit := applied.get(name):
                     s["flags"].append("Applied before")
                     _log.info("applied before: %s (%s)", s["company"], hit)
                 page_id = call(

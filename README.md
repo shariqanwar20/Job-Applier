@@ -77,7 +77,7 @@ Each run also looks at rows it already pushed. A row that today's rules would fi
 
 Optional. With Gmail connected, discover marks a new row **Applied before** when your mailbox holds an application confirmation from that company (subject or start of the message has a phrase from `mail.applied_phrases`, within `mail.applied_lookback_days`, default 365). Apply with this Gmail address from now on, so the confirmations land there.
 
-The connection can only read. It asks Google for the single scope `gmail.readonly`, so the saved token cannot send, change or delete mail, whatever the code does. Calls go to `gmail.googleapis.com` and are all GETs.
+The connection can only read. It asks Google for the single scope `gmail.readonly`, so the saved token cannot send, change or delete mail, whatever the code does. Gmail calls go to `gmail.googleapis.com` and are all GETs (only the token refresh posts, to Google's sign-in server).
 
 1. At console.cloud.google.com, create a project and enable the Gmail API.
 2. Under Google Auth Platform, set Audience to External and add yourself as a test user. Then click "Publish app": in Testing mode Google expires the refresh token after 7 days. An unverified app for personal use is fine; you click through an "unverified app" warning once.

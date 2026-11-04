@@ -6,6 +6,7 @@ from jobapplier.core.clusters import (
     _cluster_key,
     assign,
     connect,
+    employer,
     mark_pushed,
     members,
     prunable,
@@ -357,3 +358,8 @@ def test_user_aliases_and_noise_words_extend_the_rules(config):
     cfg = {**config, "rules": {**config["rules"], "company_noise": ["labs"]}}
     r = Rules.from_config(cfg)
     assert _cluster_key("Acme Labs", "Dev", r) == _cluster_key("Acme", "Dev", r)
+
+
+def test_employer_drops_noise_and_parentheticals_but_not_aliases(rules):
+    assert employer("Acme Inc. (Canada)", rules) == "acme"
+    assert employer("Amazon Web Services (AWS)", rules) == "amazon web services"
