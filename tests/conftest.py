@@ -54,10 +54,11 @@ def api_error(status, code, message="boom"):
 class FakeNotion:
     """In-memory stand-in for notion_client.Client with the methods we call.
 
-    rows holds created pages by id; fail_on_create maps the Nth create attempt to the exception it raises.
+    rows holds created pages by id; fail_on_create maps the Nth create attempt to the exception it raises;
+    fail_on_update maps a page id to the exception updating it raises.
     """
 
-    def __init__(self, fail_on_create=None):
+    def __init__(self, fail_on_create=None, fail_on_update=None):
         self.rows, self.fail_on_create, self.creates, self.description, self.calls = (
             {},
             dict(fail_on_create or {}),
@@ -65,11 +66,14 @@ class FakeNotion:
             None,
             [],
         )
+        self.fail_on_update = dict(fail_on_update or {})
         self.databases = SimpleNamespace(create=self._create_database, update=self._update_database)
         self.data_sources = SimpleNamespace(
             query=self._query, update=self._update_data_source, retrieve=self._retrieve_data_source
         )
-        self.pages = SimpleNamespace(create=self._create_page)
+        self.pages = SimpleNamespace(
+            create=self._create_page, retrieve=self._retrieve_page, update=self._update_page
+        )
 
     def _query(self, data_source_id, **kw):
         self.calls.append(("data_sources.query", {"data_source_id": data_source_id, **kw}))
@@ -97,6 +101,17 @@ class FakeNotion:
         pid = f"page-{len(self.rows) + 1}"
         self.rows[pid] = kw["properties"]
         return {"id": pid}
+
+    def _retrieve_page(self, page_id):
+        self.calls.append(("pages.retrieve", {"page_id": page_id}))
+        return {"id": page_id, "properties": self.rows[page_id]}
+
+    def _update_page(self, page_id, **kw):
+        self.calls.append(("pages.update", {"page_id": page_id, **kw}))
+        if page_id in self.fail_on_update:
+            raise self.fail_on_update[page_id]
+        self.rows[page_id].update(kw["properties"])
+        return {"id": page_id}
 
     def _update_database(self, database_id, **kw):
         self.calls.append(("databases.update", {"database_id": database_id, **kw}))

@@ -5,7 +5,7 @@ from jobapplier.core import clusters
 from jobapplier.core.identity import posting_identity
 from jobapplier.core.rules import Rules, keep
 from jobapplier.notion.client import NotionError
-from jobapplier.notion.push import push, set_status
+from jobapplier.notion.push import prune, push, set_status
 
 __all__ = ["run_discover"]
 
@@ -35,8 +35,11 @@ def run_discover(conn, cfg: dict, rules: Rules, sources: list, client, now: date
 
     created, push_errors = push(conn, client, cfg["notion"]["data_source_id"], rules)
     errors += push_errors
+    pruned, prune_errors = prune(conn, client, rules, now)
+    errors += prune_errors
     text = (
-        f"Last discover {now.astimezone():%Y-%m-%d %H:%M} · {created} new · {clusters.total(conn)} total"
+        f"Last discover {now.astimezone():%Y-%m-%d %H:%M} · {created} new · {pruned} pruned"
+        f" · {clusters.total(conn)} total"
         f" · errors: {'; '.join(errors) or 'none'}"
     )
     try:

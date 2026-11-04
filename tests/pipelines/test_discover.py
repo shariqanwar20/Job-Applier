@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from jobapplier.core.clusters import connect
+from jobapplier.core.rules import Rules
 from jobapplier.models import Posting
 from jobapplier.pipelines.discover import run_discover
 from jobapplier.sources.freehire import FreeHire
@@ -106,3 +107,22 @@ def test_push_errors_join_the_list(rules, config):
         connect(":memory:"), config, rules, [FakeSource("indeed", ([AFFIRM_INDEED], None))], n, NOW
     )
     assert r["errors"] == ["notion: J1: 400 boom"] and r["alert"] is True and r["new_rows"] == 0
+
+
+def test_run_discover_prunes_rows_the_rules_no_longer_push(rules, config):
+    conn, n = connect(":memory:"), FakeNotion()
+    srcs = [FakeSource("indeed", ([AFFIRM_INDEED], None))]
+    run_discover(conn, config, rules, srcs, n, NOW)
+    strict = Rules.from_config({**config, "rules": {**config["rules"], "blocked_companies": ["affirm"]}})
+    r = run_discover(conn, config, strict, srcs, n, NOW)
+    assert n.rows["page-1"]["Decision"]["select"]["name"] == "Skip"
+    assert r["new_rows"] == 0 and "· 1 pruned ·" in n.description and "errors: none" in n.description
+
+
+def test_prune_errors_join_the_list(rules, config):
+    conn, n = connect(":memory:"), FakeNotion(fail_on_update={"page-1": api_error(400, "validation_error")})
+    srcs = [FakeSource("indeed", ([AFFIRM_INDEED], None))]
+    run_discover(conn, config, rules, srcs, n, NOW)
+    strict = Rules.from_config({**config, "rules": {**config["rules"], "blocked_companies": ["affirm"]}})
+    r = run_discover(conn, config, strict, srcs, n, NOW)
+    assert r["errors"] == ["notion: J1: 400 boom"] and r["alert"] is True and "· 0 pruned ·" in n.description

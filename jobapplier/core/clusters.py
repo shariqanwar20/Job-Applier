@@ -3,10 +3,20 @@ import sqlite3
 from datetime import datetime, timedelta
 
 from jobapplier.core.rank import city_rank, is_remote_us, rank
-from jobapplier.core.rules import Rules, is_intern, is_notable, norm
+from jobapplier.core.rules import Rules, is_intern, is_notable, keep, norm
 from jobapplier.models import Posting
 
-__all__ = ["assign", "connect", "mark_pushed", "members", "pushable", "summarize", "total"]
+__all__ = [
+    "assign",
+    "connect",
+    "mark_pruned",
+    "mark_pushed",
+    "members",
+    "prunable",
+    "pushable",
+    "summarize",
+    "total",
+]
 
 _ATS = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby", "workday": "Workday"}
 _PARENS = re.compile(r"\([^)]*\)")
@@ -23,6 +33,7 @@ CREATE TABLE IF NOT EXISTS postings (
   company_type TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (source, source_id));
 CREATE INDEX IF NOT EXISTS postings_identity ON postings(identity);
+CREATE TABLE IF NOT EXISTS pruned (cluster_id INTEGER PRIMARY KEY, reason TEXT NOT NULL);
 """
 
 
@@ -121,6 +132,37 @@ def mark_pushed(
         "UPDATE clusters SET notion_page_id = ?, link = ?, target_identity = ? WHERE id = ?",
         (page_id, link, identity, cluster_id),
     )
+
+
+def prunable(conn: sqlite3.Connection, rules: Rules) -> list[tuple[int, str, str]]:
+    """Pushed clusters today's rules would not push, as (cluster_id, page_id, "filtered" | "duplicate").
+
+    A duplicate has the first member's key (recomputed: the stored key predates the current rules)
+    of an earlier surviving cluster first seen within 7 days of it.
+    """
+    done = dict(conn.execute("SELECT cluster_id, reason FROM pruned").fetchall())
+    survivors: list[tuple[str, datetime]] = []
+    out = []
+    for row in conn.execute("SELECT * FROM clusters WHERE notion_page_id IS NOT NULL ORDER BY id").fetchall():
+        previous = done.get(row["id"])
+        if previous in ("filtered", "duplicate"):
+            continue
+        ms = members(conn, row["id"])
+        reason = "filtered"
+        if any(keep(m, rules) for m in ms):
+            key = _cluster_key(ms[0].company, ms[0].title, rules)
+            seen = datetime.fromisoformat(row["first_seen"])
+            near = any(k == key and abs(seen - t) <= timedelta(days=7) for k, t in survivors)
+            reason = "duplicate" if near else None
+            if not near:
+                survivors.append((key, seen))
+        if reason and previous is None:  # a row the owner already decided on was settled in an earlier run
+            out.append((row["id"], row["notion_page_id"], reason))
+    return out
+
+
+def mark_pruned(conn: sqlite3.Connection, cluster_id: int, reason: str) -> None:
+    conn.execute("INSERT INTO pruned (cluster_id, reason) VALUES (?, ?)", (cluster_id, reason))
 
 
 def total(conn: sqlite3.Connection) -> int:

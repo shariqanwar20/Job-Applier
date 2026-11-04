@@ -1,12 +1,13 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 
 from jobapplier.core.clusters import assign, connect
+from jobapplier.core.rules import Rules
 from jobapplier.models import Posting
 from jobapplier.notion.client import NotionError
-from jobapplier.notion.push import _page_properties, create_database, push, set_status, style_database
+from jobapplier.notion.push import _page_properties, create_database, prune, push, set_status, style_database
 from tests.conftest import FakeNotion, FakeViewsNotion, api_error
 
 NOW = datetime(2026, 10, 31, 12, tzinfo=UTC)
@@ -174,3 +175,94 @@ def test_push_treats_a_network_error_as_a_per_row_error(rules):
         None,
         "page-2",
     ]
+
+
+def _rules_with(config, **overrides):
+    return Rules.from_config({**config, "rules": {**config["rules"], **overrides}})
+
+
+def _decision(n, page_id):
+    return n.rows[page_id]["Decision"]["select"]["name"]
+
+
+def _flags(n, page_id):
+    return [f["name"] for f in n.rows[page_id]["Flags"]["multi_select"]]
+
+
+def _pruned(conn):
+    return {r["cluster_id"]: r["reason"] for r in conn.execute("SELECT * FROM pruned")}
+
+
+def test_prune_skips_a_row_the_rules_no_longer_push(rules, config):
+    conn, n = seed(rules), FakeNotion()
+    push(conn, n, "ds1", rules)
+    strict = _rules_with(config, blocked_companies=["co2"])
+    assert prune(conn, n, strict, NOW) == (1, [])
+    assert _decision(n, "page-2") == "Skip" and _flags(n, "page-2") == ["Aggregator link", "Filtered"]
+    assert _decision(n, "page-1") == "New" and _decision(n, "page-3") == "New"
+    assert _pruned(conn) == {2: "filtered"}
+    assert not any(name == "pages.update" and kw["page_id"] != "page-2" for name, kw in n.calls)
+
+
+def _duplicate_pair(rules, config, days=1):
+    """Two pushed clusters for one employer, split because they were assigned under looser rules."""
+    loose = _rules_with(config, company_noise=[], company_aliases={})
+    conn, n = connect(":memory:"), FakeNotion()
+    for i, (company, delta) in enumerate((("TD", 0), ("TD Bank Group", days)), 1):
+        p = Posting(
+            "linkedin",
+            f"li{i}",
+            "Software Developer",
+            company,
+            "Toronto, ON",
+            f"https://www.linkedin.com/jobs/view/{i}",
+        )
+        assert assign(conn, p, loose, NOW + timedelta(days=delta), False) == i
+    conn.commit()
+    push(conn, n, "ds1", rules)
+    n.rows["page-2"]["Flags"] = {"multi_select": [{"name": "Remote US"}]}
+    return conn, n
+
+
+def test_prune_skips_a_later_duplicate_and_leaves_the_earlier_row(rules, config):
+    conn, n = _duplicate_pair(rules, config)
+    assert prune(conn, n, rules, NOW) == (1, [])
+    assert _decision(n, "page-2") == "Skip" and _flags(n, "page-2") == ["Remote US", "Duplicate"]
+    assert _decision(n, "page-1") == "New" and ("pages.update", "page-1") not in [
+        (name, kw.get("page_id")) for name, kw in n.calls
+    ]
+    assert _pruned(conn) == {2: "duplicate"}
+
+
+def test_prune_leaves_a_same_employer_row_seen_over_a_week_later(rules, config):
+    conn, n = _duplicate_pair(rules, config, days=8)
+    assert prune(conn, n, rules, NOW) == (0, []) and _pruned(conn) == {}
+
+
+def test_prune_does_not_touch_a_page_the_owner_already_decided(rules, config):
+    conn, n = seed(rules), FakeNotion()
+    push(conn, n, "ds1", rules)
+    n.rows["page-2"]["Decision"] = {"select": {"name": "Approve"}}
+    assert prune(conn, n, _rules_with(config, blocked_companies=["co2"]), NOW) == (0, [])
+    assert _decision(n, "page-2") == "Approve" and _pruned(conn) == {2: "kept: owner decided"}
+    assert not any(name == "pages.update" for name, _ in n.calls)
+
+
+def test_second_prune_makes_no_notion_calls(rules, config):
+    conn, n = seed(rules), FakeNotion()
+    push(conn, n, "ds1", rules)
+    strict = _rules_with(config, blocked_companies=["co2", "co3"])
+    n.rows["page-3"]["Decision"] = {"select": {"name": "Skip"}}
+    assert prune(conn, n, strict, NOW) == (1, [])
+    seen = len(n.calls)
+    assert prune(conn, n, strict, NOW) == (0, []) and len(n.calls) == seen
+
+
+def test_prune_reports_a_notion_error_and_retries_that_row_next_time(rules, config):
+    conn, n = seed(rules), FakeNotion(fail_on_update={"page-2": api_error(500, "internal_server_error")})
+    push(conn, n, "ds1", rules)
+    strict = _rules_with(config, blocked_companies=["co2", "co3"])
+    assert prune(conn, n, strict, NOW) == (1, ["notion: J2: 500 boom"])
+    assert _decision(n, "page-3") == "Skip" and _decision(n, "page-2") == "New" and set(_pruned(conn)) == {3}
+    n.fail_on_update.clear()
+    assert prune(conn, n, strict, NOW) == (1, []) and _decision(n, "page-2") == "Skip"

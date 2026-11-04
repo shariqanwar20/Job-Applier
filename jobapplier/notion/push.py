@@ -1,9 +1,11 @@
+from datetime import datetime
+
 from notion_client import Client
 
 from jobapplier.core import clusters
 from jobapplier.notion.client import NotionError, call
 
-__all__ = ["create_database", "push", "set_status", "style_database"]
+__all__ = ["create_database", "prune", "push", "set_status", "style_database"]
 
 
 def _options(*names: str) -> dict:
@@ -20,7 +22,13 @@ _SCHEMA = {
     "ATS": _options("Greenhouse", "Lever", "Ashby", "Workday", "Other"),
     "First seen": {"date": {}},
     "Posted": {"date": {}},
-    "Flags": {"multi_select": {"options": [{"name": n} for n in ("Remote US", "Aggregator link", "Repost")]}},
+    "Flags": {
+        "multi_select": {
+            "options": [
+                {"name": n} for n in ("Remote US", "Aggregator link", "Repost", "Filtered", "Duplicate")
+            ]
+        }
+    },
     "Link": {"url": {}},
     "Job ID": {"rich_text": {}},
     "Decision": _options("New", "Approve", "Approve + review", "Skip"),
@@ -127,6 +135,38 @@ def push(conn, client: Client, ds_id: str, rules) -> tuple[int, list[str]]:
         clusters.mark_pushed(conn, row["id"], page_id, s["link"], s["identity"])
         conn.commit()
     return created, errors
+
+
+def prune(conn, client: Client, rules, now: datetime) -> tuple[int, list[str]]:
+    """Sets rows the current rules would not push to Skip, flagged Filtered or Duplicate. Never deletes.
+
+    now is unused: the duplicate window runs on the clusters' own first_seen.
+    """
+    skipped, errors = 0, []
+    for cluster_id, page_id, reason in clusters.prunable(conn, rules):
+        try:
+            props = call(client.pages.retrieve, page_id=page_id)["properties"]
+            if (props["Decision"]["select"] or {}).get("name") == "New":
+                flags = [
+                    f["name"] for f in props["Flags"]["multi_select"]
+                ]  # an update replaces the whole list
+                call(
+                    client.pages.update,
+                    page_id=page_id,
+                    properties={
+                        "Decision": {"select": {"name": "Skip"}},
+                        "Flags": {"multi_select": [{"name": f} for f in [*flags, reason.capitalize()]]},
+                    },
+                )
+                skipped += 1
+            else:
+                reason = "kept: owner decided"  # they already acted on the row, so leave it as they set it
+        except NotionError as exc:
+            errors.append(f"notion: J{cluster_id}: {exc}")
+            continue
+        clusters.mark_pruned(conn, cluster_id, reason)
+        conn.commit()
+    return skipped, errors
 
 
 def set_status(client: Client, database_id: str, text: str) -> None:
