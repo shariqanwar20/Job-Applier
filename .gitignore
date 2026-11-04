@@ -2,7 +2,8 @@ profile.yaml
 config.yaml
 .env
 answers_bank.md
-resume/
+resume/*
+!resume/example.master.tex
 output/
 data/
 logs/

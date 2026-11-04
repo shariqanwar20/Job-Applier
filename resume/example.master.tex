@@ -1,0 +1,44 @@
+% An example master resume with made-up content. Copy it to resume/master.tex and make it yours.
+% A line the tailor may reword, reorder or leave out ends with "% id:<id>".
+% Add " required" after the id for a line that is always printed.
+\documentclass[letterpaper,11pt]{article}
+\usepackage[margin=0.6in]{geometry}
+\usepackage[hidelinks]{hyperref}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\newcommand{\resumeItem}[1]{\item #1}
+\newcommand{\entry}[4]{\textbf{#1} \hfill #2 \\ \textit{#3} \hfill \textit{#4}}
+
+\begin{document}
+\begin{center}
+  {\LARGE Alex Example} \\
+  alex@example.com \quad (555) 010-0000 \quad Toronto, ON
+\end{center}
+
+\section*{Experience}
+\entry{Example Clinic Software}{2024 -- Present}{Software Developer}{Toronto, ON}
+\begin{itemize}
+  \resumeItem{Built a REST API in Go that served 3 clinics} % id:exp1.b1 required
+  \resumeItem{Cut page load time by 40\% with Redis caching} % id:exp1.b2
+  \resumeItem{Helped move the billing service to PostgreSQL} % id:exp1.b3
+\end{itemize}
+
+\entry{Sample Retail Co}{2022 -- 2024}{Junior Developer}{Remote}
+\begin{itemize}
+  \resumeItem{Wrote unit tests in Python for the order service} % id:exp2.b1 required
+  \resumeItem{Supported the on-call rotation for 2 internal tools} % id:exp2.b2
+\end{itemize}
+
+\section*{Projects}
+\textbf{Trail Planner} \hfill React, TypeScript
+\begin{itemize}
+  \resumeItem{Made a web app that plans hikes from open trail data} % id:proj1.b1
+  \resumeItem{Added offline maps with a service worker} % id:proj1.b2
+\end{itemize}
+
+\section*{Skills}
+\begin{itemize}
+  \item \textbf{Languages:} Python, Go, TypeScript, SQL % id:skills.lang required
+  \item \textbf{Tools:} Docker, PostgreSQL, Redis, Git % id:skills.tools
+\end{itemize}
+\end{document}
