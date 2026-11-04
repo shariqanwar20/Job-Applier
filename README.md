@@ -73,6 +73,20 @@ LinkedIn and Indeed answering 429 (rate limited) is retried once after `retry_af
 
 Each run also looks at rows it already pushed. A row that today's rules would filter, or that is a repeat of an earlier row for the same employer and title (first seen within 7 days of it), is set to Decision `Skip` with a Flags value of `Filtered` or `Duplicate`, but only while its Decision is still `New`. A row you have decided on is left alone. Skipped rows drop out of the Inbox view, and nothing is deleted.
 
+## Mail
+
+Optional. With Gmail connected, discover marks a new row **Applied before** when your mailbox holds an application confirmation from that company (subject or start of the message has a phrase from `mail.applied_phrases`, within `mail.applied_lookback_days`, default 365). Apply with this Gmail address from now on, so the confirmations land there.
+
+The connection can only read. It asks Google for the single scope `gmail.readonly`, so the saved token cannot send, change or delete mail, whatever the code does. Calls go to `gmail.googleapis.com` and are all GETs.
+
+1. At console.cloud.google.com, create a project and enable the Gmail API.
+2. Under Google Auth Platform, set Audience to External and add yourself as a test user. Then click "Publish app": in Testing mode Google expires the refresh token after 7 days. An unverified app for personal use is fine; you click through an "unverified app" warning once.
+3. Under Data access, add the scope `https://www.googleapis.com/auth/gmail.readonly`.
+4. Under Clients, create an OAuth client of type Desktop app and download its JSON to `data/gmail_client.json` (`mail.client_secrets`; `data/` is git-ignored).
+5. Run `uv run python -m jobapplier mail-login`. It opens your browser for a one-time sign-in, with Google redirecting back to a temporary port on localhost, then saves the token to `data/gmail_token.json` (mode 600) and prints `Gmail OK: <your address>`.
+
+Mail is on whenever the token file exists. If Google rejects the token (revoked, or expired), discover reports `sign in again with mail-login`, pushes the rows without the flag and carries on; run `mail-login` again.
+
 ## Run once by hand
 
 ```

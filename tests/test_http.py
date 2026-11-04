@@ -36,6 +36,15 @@ def test_get_json_joins_url_and_sends_headers_params_timeout():
     assert s.headers["X-Key"] == "k"
 
 
+def test_get_json_sends_per_call_headers_only_when_given():
+    s = FakeSession([Resp(200), Resp(200)])
+    api = ApiClient("https://x", session=s)
+    api.get_json("/a")
+    api.get_json("/b", headers={"Authorization": "Bearer t"})
+    assert "headers" not in s.calls[0] and s.calls[1]["headers"] == {"Authorization": "Bearer t"}
+    assert "Authorization" not in s.headers
+
+
 def test_retry_is_mounted_for_get_on_rate_limits_and_server_errors():
     retry = ApiClient("https://x", session=FakeSession([])).session.get_adapter("https://x/y").max_retries
     assert retry.total == 3 and set(retry.status_forcelist) == {429, 500, 502, 503, 504}

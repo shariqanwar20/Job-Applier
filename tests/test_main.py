@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from jobapplier import __main__ as app
+from jobapplier.mail.gmail import MailError
 from jobapplier.notion.client import NotionError, call, make_client
 from jobapplier.system import launchd
 from jobapplier.system.lock import locked
@@ -162,3 +163,32 @@ def test_main_keeps_httpx_request_logs_out(monkeypatch, caplog):
     http = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={})))
     call(make_client("tok", http).pages.create, parent={}, properties={})
     assert not [r for r in caplog.records if r.name == "httpx"]
+
+
+def test_mail_login_signs_in_and_prints_the_address(home, monkeypatch, capsys):
+    root, _ = home
+    calls = []
+    monkeypatch.setattr(app, "sign_in", lambda cfg, r: calls.append((cfg["token"], r)))
+    monkeypatch.setattr(
+        app, "Gmail", lambda cfg, r: type("G", (), {"address": lambda self: "me@example.com"})()
+    )
+    assert app.main(["mail-login"]) == 0
+    assert calls == [("data/gmail_token.json", root)]
+    assert capsys.readouterr().out.strip() == "Gmail OK: me@example.com"
+
+
+def test_mail_login_reports_failures_without_a_traceback_or_their_text(home, monkeypatch, capsys):
+    def deny(cfg, r):
+        raise RuntimeError("code=SECRET-AUTH-CODE")
+
+    monkeypatch.setattr(app, "sign_in", deny)
+    assert app.main(["mail-login"]) == 1
+    out = capsys.readouterr().out
+    assert "RuntimeError" in out and "SECRET" not in out
+
+    def missing(cfg, r):
+        raise MailError("mail: put the OAuth client JSON at data/gmail_client.json (see README, Mail)")
+
+    monkeypatch.setattr(app, "sign_in", missing)
+    assert app.main(["mail-login"]) == 1
+    assert capsys.readouterr().out.startswith("mail: put the OAuth client JSON")

@@ -36,13 +36,15 @@ class ApiClient:
         self.session.mount("https://", HTTPAdapter(max_retries=retry))
         self._last_call = float("-inf")
 
-    def get_json(self, path: str, params=None) -> dict:
+    def get_json(self, path: str, params=None, headers: dict | None = None) -> dict:
+        """headers apply to this call only (a bearer token must not sit on the shared session)."""
         wait = self._last_call + self.min_interval - monotonic()
         if wait > 0:
             sleep(wait)
         self._last_call = monotonic()
         try:
-            resp = self.session.get(self.base_url + path, params=params, timeout=self.timeout)
+            extra = {"headers": headers} if headers else {}
+            resp = self.session.get(self.base_url + path, params=params, timeout=self.timeout, **extra)
         except requests.RequestException as e:
             raise ApiError(f"network: {type(e).__name__}") from None  # the exception text can carry the URL
         if not 200 <= resp.status_code < 300:

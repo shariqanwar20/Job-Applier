@@ -1,4 +1,4 @@
-"""The one entry point: `python -m jobapplier <discover | notion-setup | install-agent | uninstall-agent>`."""
+"""The one entry point: `python -m jobapplier <discover | notion-setup | mail-login | ...>`; see --help."""
 
 import argparse
 import logging
@@ -12,6 +12,7 @@ from pathlib import Path
 from jobapplier.config import load_config, load_env
 from jobapplier.core import clusters
 from jobapplier.core.rules import Rules
+from jobapplier.mail.gmail import Gmail, MailError, sign_in
 from jobapplier.notion.client import NotionError, make_client
 from jobapplier.notion.push import create_database, style_database
 from jobapplier.pipelines.discover import run_discover
@@ -37,6 +38,7 @@ def main(argv: list[str] | None = None) -> int:
         "notion-setup", help="create the database under a Notion page and print the config snippet"
     )
     setup.add_argument("parent_page_id")
+    commands.add_parser("mail-login", help="sign in to Gmail (read-only) once in the browser")
     commands.add_parser("install-agent", help="run discover every two hours via a launchd LaunchAgent")
     commands.add_parser("uninstall-agent", help="remove the LaunchAgent")
     args = parser.parse_args(argv)
@@ -46,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
     load_env(_ROOT / ".env")
     if args.command == "notion-setup":
         return _notion_setup(args.parent_page_id)
+    if args.command == "mail-login":
+        return _mail_login()
     if args.command == "install-agent":
         return _install_agent()
     if args.command == "uninstall-agent":
@@ -63,6 +67,20 @@ def _install_agent() -> int:
         print(f"Installed {launchd.install(_ROOT, uv)}; discover runs now and every two hours.")
     except subprocess.CalledProcessError as exc:
         print(f"launchctl failed: {exc}")
+        return 1
+    return 0
+
+
+def _mail_login() -> int:
+    mail_cfg = load_config(_ROOT)["mail"]
+    try:
+        sign_in(mail_cfg, _ROOT)
+        print(f"Gmail OK: {Gmail(mail_cfg, _ROOT).address()}")
+    except MailError as exc:
+        print(exc)
+        return 1
+    except Exception as exc:  # a refused consent or a bad client file; the text can carry the auth code
+        print(f"mail: sign-in failed ({type(exc).__name__}); see README, Mail")
         return 1
     return 0
 

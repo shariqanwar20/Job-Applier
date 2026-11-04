@@ -44,3 +44,9 @@ notion:
   title: Full Time Role Search   # the database and its view header, set by `notion-setup`
   database_id: ""        # set in your config.yaml; `python -m jobapplier notion-setup` prints it
   data_source_id: ""     # set in your config.yaml too
+mail:  # read-only Gmail (OAuth scope gmail.readonly); on when the token file exists, see README "Mail"
+  client_secrets: data/gmail_client.json  # the OAuth client downloaded from Google Cloud, relative to the repo
+  token: data/gmail_token.json            # written by `mail-login`
+  applied_lookback_days: 365    # how far back "applied before" looks
+  # A message whose subject or start of body has one of these (whole words) counts as an application confirmation.
+  applied_phrases: [thank you for applying, thanks for applying, application received, we received your application, your application to, application submitted]
