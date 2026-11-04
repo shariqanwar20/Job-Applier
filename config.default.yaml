@@ -82,3 +82,38 @@ tailor:  # a one-page resume per approved row, from resume/master.tex; see READM
 
 schedule:  # the LaunchAgent (install-agent) runs `python -m jobapplier run` every 30 minutes
   discover_every_minutes: 120   # discover only this often; tailoring runs on every tick
+
+apply:  # `apply` opens ready rows in Chrome and pre-fills the form; you check it and submit. See README "Applying"
+  max_tabs: 8                      # tabs opened per run; run apply again for the rest
+  browser_profile: data/browser-profile  # Chrome profile kept between runs, so a sign-in you do by hand stays
+  load_timeout_seconds: 30
+  parser_wait_seconds: 3           # after the resume upload, for the site's resume parser to fill fields
+  field_timeout_seconds: 3         # per field; a field that takes longer is left for you
+  # A page whose URL or title has one of these (whole words), or that shows a password field, is left for you.
+  login_words: [sign in, signin, log in, login, create account, create an account, sign up, signup, register]
+  # The option picked for a demographic question when profile.yaml has voluntary_self_id: decline.
+  decline_words: [prefer not, decline, do not wish, don t wish, not to answer, not to disclose, not to say, choose not, rather not, not wish to]
+  # Field label -> profile.yaml key. The first rule with a pattern in the label wins (whole words, normalized
+  # like titles). key: a list tries each key in turn; skip leaves the field to you; salary is the posting's
+  # stated range, else salary_expectation in a text box, else salary_default.
+  fields:
+    - {patterns: [company name, current company, current employer, employer, school, university, preferred name, nickname, referred, referral, referrer, reference, recruiter, hiring manager, cover letter, how did you hear], key: skip}
+    - {patterns: [gender, pronoun, pronouns, race, racial, ethnicity, ethnic, veteran, disability, disabled, hispanic, latino, sexual orientation, transgender, lgbtq, indigenous, visible minority], key: voluntary_self_id}
+    - {patterns: [first name, given name, prenom], key: name.first}
+    - {patterns: [last name, family name, surname, nom de famille], key: name.last}
+    - {patterns: [full name, legal name, your name, name], key: name.full}
+    - {patterns: [email, e mail, courriel], key: email}
+    - {patterns: [phone, mobile, telephone, cell], key: phone}
+    - {patterns: [linkedin], key: links.linkedin}
+    - {patterns: [github], key: links.github}
+    - {patterns: [website, portfolio, personal site, personal url], key: [links.website, links.github]}
+    - {patterns: [in the future require, future require, future sponsorship, sponsorship in the future], key: work_authorization.sponsorship_future}
+    - {patterns: [sponsorship, sponsor], key: work_authorization.sponsorship_now}
+    - {patterns: [authorized to work in canada, authorised to work in canada, eligible to work in canada, entitled to work in canada, legally work in canada, right to work in canada, permitted to work in canada], key: work_authorization.canada}
+    - {patterns: [relocate, relocation], key: relocation.willing}
+    - {patterns: [salary, compensation, pay expectation, pay expectations, expected pay, desired pay], key: salary}
+    - {patterns: [start date, available to start, earliest start, when can you start, availability, notice period], key: start_date}
+    - {patterns: [city], key: location.city}
+    - {patterns: [province, state province, province state], key: location.province}
+    - {patterns: [country], key: location.country}
+    - {patterns: [location, where are you based, where do you live, current location], key: location.full}
