@@ -1,11 +1,12 @@
-"""Ready Notion rows -> pre-filled applications in Chrome. The owner submits each one by hand."""
+"""Ready Notion rows -> applications filled by one agent each in Chrome. The owner submits each by hand."""
 
 import logging
 from datetime import date
+from pathlib import Path
 from urllib.parse import urlsplit
 
-from jobapplier.apply.browser import prepare
-from jobapplier.apply.fill import FieldRules
+from jobapplier.apply.agent import describe, run_application
+from jobapplier.apply.page import ClickRules
 from jobapplier.apply.targets import find_targets
 from jobapplier.core.rules import Rules
 from jobapplier.notion.client import NotionError
@@ -37,14 +38,9 @@ def _answer(ask, prompt: str) -> str:
                 raise _ClosingError from None
 
 
-def _opened_line(t, r: dict) -> str:
-    if r["login"]:
-        how = "sign in yourself"
-    else:
-        pages = f" over {r['pages']} pages" if r["pages"] > 1 else ""
-        how = f"filled {r['filled']} fields{pages}" + (
-            f", {len(r['missing'])} required still empty" if r["missing"] else ""
-        )
+def _opened_line(t, r: dict, agent_cfg: dict) -> str:
+    left = f", {len(r['missing'])} required still empty" if r["missing"] else ""
+    how = f"{describe(r['status'], agent_cfg)}; filled {r['filled']} fields{left}, ${r['cost']:.2f}"
     return f"opened {t.job_id} ({t.company}) {t.url}: {how}"
 
 
@@ -54,15 +50,22 @@ def run_apply(
     client,
     rules: Rules,
     values: dict,
+    resume: str,
     browser,
+    llm_run,
+    log_dir: Path,
     job_id: str | None = None,
     ask=input,
     say=print,
     today=date.today,
+    prompt: bool = True,
 ) -> dict:
-    """Opens up to apply.max_tabs ready rows in browser(), then asks which ones the owner submitted.
+    """Runs the agent on up to apply.max_tabs ready rows in browser(), one after another, each in its own
+    tab, then asks which ones the owner submitted. Without prompt it asks nothing, marks nothing and closes
+    Chrome.
 
-    browser is a context manager giving a browser context; it closes Chrome on exit.
+    browser is a context manager giving a browser context; it closes Chrome on exit. llm_run is
+    llm.run_with_cost without claude and timeout; values is profile_values; resume is the master's text.
     """
     ensure_tailor_schema(client, cfg["notion"]["data_source_id"])
     targets, skipped = find_targets(conn, client, cfg, rules, job_id)
@@ -77,7 +80,7 @@ def run_apply(
     if not targets:
         say("Nothing ready to apply.")
         return result
-    field_rules = FieldRules.from_config(cfg["apply"])
+    click_rules = ClickRules.from_config(cfg["apply"])
     with browser() as context:
         for n, t in enumerate(targets):
             # A persistent context opens with one blank tab; the first target goes there. A tab Chrome
@@ -86,10 +89,14 @@ def run_apply(
             page = context.pages[0] if blank else context.new_page()
             result["opened"] += 1
             try:
-                say(_opened_line(t, prepare(page, t, values, cfg, field_rules)))
+                r = run_application(page, t, cfg, values, resume, llm_run, click_rules, log_dir)
+                say(_opened_line(t, r, cfg["apply"]["agent"]))
             except Exception as exc:  # one page must not stop the others; the tab stays for the owner
                 _log.warning("apply: %s: %s", t.job_id, exc)
                 say(f"opened {t.job_id} ({t.company}) {t.url}: could not prepare it ({exc}); tab left open")
+        if not prompt:
+            say("--no-prompt: nothing marked Submitted; closing Chrome.")
+            return result
         try:
             _answer(ask, "Submit the ones you want in Chrome, then press Enter here.")
             for t in targets:

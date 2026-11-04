@@ -331,15 +331,12 @@ def test_apply_without_a_profile_names_the_example(home, capsys):
     assert "profile.example.yaml" in capsys.readouterr().out
 
 
-def test_apply_opens_the_job_in_chrome_and_marks_it_submitted(home, monkeypatch, rules, capsys):
-    from contextlib import contextmanager
-
-    from tests.apply.test_browser import FakePage
-    from tests.apply.test_fill import field
-
-    root, _ = home
+def _apply_home(root, rules, monkeypatch):
+    """A fake root ready for `apply --job J1`: profile, master resume, a recorded PDF and a ready row."""
     set_ids(root)
     shutil.copy(Path(app.__file__).parents[1] / "profile.example.yaml", root / "profile.yaml")
+    (root / "resume").mkdir()
+    (root / "resume" / "master.tex").write_text("\\section{Experience}\nBuilt a billing service % id:a\n")
     (root / "data").mkdir()
     conn = clusters.connect(str(root / "data" / "jobs.db"))
     clusters.assign(conn, AFFIRM_INDEED, rules, datetime(2026, 11, 1, tzinfo=UTC), False)
@@ -356,23 +353,74 @@ def test_apply_opens_the_job_in_chrome_and_marks_it_submitted(home, monkeypatch,
             "Resume": {"files": [{"name": "A_J1.pdf"}]},
         }
     }
-    page, profiles = FakePage([[field("1", "First Name")]]), []
+    monkeypatch.setattr(app, "make_client", lambda token: n)
+    return n
+
+
+def test_apply_runs_the_agent_in_chrome_and_marks_it_submitted(home, monkeypatch, rules, capsys):
+    from contextlib import contextmanager
+
+    from tests.apply.fakes import FakeLlm, FakePage, answer, el, state
+
+    root, _ = home
+    n = _apply_home(root, rules, monkeypatch)
+    page, profiles = FakePage([state(el(1, "First Name"))]), []
+    llm = FakeLlm([answer({"op": "fill", "ref": 1, "value": "Alex"}, status="ready_to_submit")])
 
     @contextmanager
     def fake_chrome(profile_dir):
         profiles.append(profile_dir)
         yield type("Ctx", (), {"pages": [page]})()
 
-    monkeypatch.setattr(app, "make_client", lambda token: n)
     monkeypatch.setattr(app, "chrome", fake_chrome)
+    monkeypatch.setattr(
+        app.llm,
+        "run_with_cost",
+        lambda prompt, schema, model, writing, **kw: llm(prompt, schema, model, writing),
+    )
     answers = iter(["", "y"])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
     assert app.main(["apply", "--job", "J1"]) == 0
     assert profiles == [root / "data" / "browser-profile"]
     assert page.url == "https://job-boards.greenhouse.io/affirm/jobs/8042399003"
-    assert page.done == [("fill", "1", "Alex")]
+    assert page.done == [("fill", 1, "Alex")]
+    assert "Built a billing service" in llm.calls[0]["prompt"] and "Alex" in llm.calls[0]["prompt"]
     assert n.rows["p1"]["Status"] == {"select": {"name": "Submitted"}}
     assert "opened J1 (Affirm)" in capsys.readouterr().out
+    assert (root / "logs" / "apply-J1.json").exists()
+
+
+def test_apply_no_prompt_asks_nothing(home, monkeypatch, rules):
+    from contextlib import contextmanager
+
+    from tests.apply.fakes import FakeLlm, FakePage, answer, el, state
+
+    root, _ = home
+    n = _apply_home(root, rules, monkeypatch)
+    page = FakePage([state(el(1, "First Name"))])
+
+    @contextmanager
+    def fake_chrome(profile_dir):
+        yield type("Ctx", (), {"pages": [page]})()
+
+    llm = FakeLlm([answer(status="ready_to_submit")])
+    monkeypatch.setattr(app, "chrome", fake_chrome)
+    monkeypatch.setattr(
+        app.llm,
+        "run_with_cost",
+        lambda prompt, schema, model, writing, **kw: llm(prompt, schema, model, writing),
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("--no-prompt must not ask"))
+    assert app.main(["apply", "--job", "J1", "--no-prompt"]) == 0
+    assert n.rows["p1"]["Status"] == {"select": {"name": "Tailored"}}
+
+
+def test_apply_without_a_master_resume_says_so(home, monkeypatch, rules, capsys):
+    root, _ = home
+    _apply_home(root, rules, monkeypatch)
+    (root / "resume" / "master.tex").unlink()
+    assert app.main(["apply"]) == 1
+    assert "example.master.tex" in capsys.readouterr().out
 
 
 def _ready_row(job_id):

@@ -3,15 +3,16 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from jobapplier.apply import browser
+from jobapplier.apply import agent
 from jobapplier.core.clusters import assign, connect, record_resume
 from jobapplier.core.identity import posting_identity
 from jobapplier.models import Posting
 from jobapplier.pipelines import apply as pipeline
 from jobapplier.pipelines.apply import run_apply
-from tests.apply.test_browser import FakePage
-from tests.apply.test_fill import VALUES, field
+from tests.apply.fakes import FakeLlm, FakePage, answer, el, state
 from tests.conftest import FakeNotion
+
+VALUES = {"name.first": "Alex", "email": "alex@example.com"}
 
 NOW = datetime(2026, 11, 1, tzinfo=UTC)
 
@@ -73,9 +74,19 @@ def home(tmp_path, config, rules):
     return tmp_path, config, rules, conn, n
 
 
-def run(home, answers, pages=None, job_id=None):
-    _, cfg, rules, conn, n = home
-    ctx = FakeContext(pages or [FakePage([[field("1", "Email")]]) for _ in range(3)])
+def email_page():
+    return FakePage([state(el(1, "Email"))])
+
+
+def llm():
+    return FakeLlm(
+        [answer({"op": "fill", "ref": 1, "value": "alex@example.com"}), answer(status="ready_to_submit")]
+    )
+
+
+def run(home, answers, pages=None, job_id=None, prompt=True):
+    tmp, cfg, rules, conn, n = home
+    ctx = FakeContext(pages or [email_page() for _ in range(3)])
 
     @contextmanager
     def fake_browser():
@@ -94,11 +105,15 @@ def run(home, answers, pages=None, job_id=None):
         n,
         rules,
         VALUES,
+        "RESUME",
         fake_browser,
+        llm(),
+        tmp / "logs",
         job_id,
         ask=ask,
         say=said.append,
         today=lambda: date(2026, 11, 4),
+        prompt=prompt,
     )
     return result, ctx, asked, said
 
@@ -122,7 +137,10 @@ def test_apply_opens_ready_rows_asks_and_marks_the_submitted_ones(home):
     assert n.rows["p3"]["Status"] == {"select": {"name": "Reviewed"}}  # N leaves it as it was
     assert ctx.closed and result == {"opened": 2, "skipped": 1, "submitted": 1}
     assert any(line.startswith("skipped J2 (Board Co): only a job-board link") for line in said)
-    assert any(line.startswith("opened J1 (PRI)") and "filled 1 fields" in line for line in said)
+    assert any(
+        line.startswith("opened J1 (PRI)") and "ready for you to submit" in line and "filled 1 fields" in line
+        for line in said
+    )
 
 
 def test_apply_with_job_opens_that_row_whatever_its_status(home):
@@ -150,55 +168,79 @@ def test_nothing_ready_opens_no_browser(home):
         pytest.fail("must not open Chrome")
         yield
 
-    _, cfg, rules, conn, _ = home
+    tmp, cfg, rules, conn, _ = home
     said = []
-    result = run_apply(conn, cfg, n, rules, VALUES, no_browser, ask=pytest.fail, say=said.append)
+    result = run_apply(
+        conn, cfg, n, rules, VALUES, "", no_browser, llm(), tmp, ask=pytest.fail, say=said.append
+    )
     assert result == {"opened": 0, "skipped": 0, "submitted": 0} and said == ["Nothing ready to apply."]
 
 
 def test_a_tab_that_fails_to_load_is_reported_and_the_rest_still_open(home, monkeypatch):
     calls = []
 
-    def prepare(page, target, values, cfg, rules):
+    def fake_run(page, target, *a):
         calls.append(target.job_id)
         if target.job_id == "J1":
             raise RuntimeError("net::ERR_NAME_NOT_RESOLVED")
-        return {"filled": 0, "missing": [], "login": True, "pages": 1}
+        return {"status": "needs_account", "note": "", "filled": 0, "missing": [], "cost": 0.0}
 
-    monkeypatch.setattr(pipeline, "prepare", prepare)
+    monkeypatch.setattr(pipeline, "run_application", fake_run)
     _, _, asked, said = run(home, ["", "n", "n"])
     assert calls == ["J1", "J3"] and len(asked) == 3
     assert any("J1 (PRI)" in line and "ERR_NAME_NOT_RESOLVED" in line for line in said)
-    assert any(line.startswith("opened J3 (Acme)") and "sign in yourself" in line for line in said)
+    assert any(
+        line.startswith("opened J3 (Acme)") and "sign in or create the account yourself" in line
+        for line in said
+    )
 
 
 def test_end_of_input_counts_as_no(home):
     def eof(prompt):
         raise EOFError
 
-    _, cfg, rules, conn, n = home
-    ctx = FakeContext([FakePage([[]]), FakePage([[]])])
+    tmp, cfg, rules, conn, n = home
+    ctx = FakeContext([email_page(), email_page()])
 
     @contextmanager
     def fake_browser():
         yield ctx
 
-    result = run_apply(conn, cfg, n, rules, VALUES, fake_browser, ask=eof, say=lambda line: None)
+    result = run_apply(
+        conn, cfg, n, rules, VALUES, "", fake_browser, llm(), tmp, ask=eof, say=lambda line: None
+    )
     assert result["submitted"] == 0 and n.rows["p1"]["Status"] == {"select": {"name": "Tailored"}}
 
 
-def test_the_pipeline_uses_the_real_prepare():
-    assert pipeline.prepare is browser.prepare
+def test_the_pipeline_uses_the_real_loop():
+    assert pipeline.run_application is agent.run_application
 
 
-def test_the_opened_line_counts_pages(home, monkeypatch):
-    monkeypatch.setattr(
-        pipeline, "prepare", lambda *a: {"filled": 7, "missing": [], "login": False, "pages": 3}
-    )
+def test_the_opened_line_says_why_it_stopped_what_is_left_and_the_cost(home, monkeypatch):
+    result = {"status": "stuck", "note": "", "filled": 7, "missing": ["Why us?"], "cost": 0.1234}
+    monkeypatch.setattr(pipeline, "run_application", lambda *a: result)
     _, _, _, said = run(home, ["", "n", "n"])
     assert any(
-        line.startswith("opened J1 (PRI)") and line.endswith("filled 7 fields over 3 pages") for line in said
+        line.startswith("opened J1 (PRI)")
+        and line.endswith(
+            "the page did not change for 3 steps; filled 7 fields, 1 required still empty, $0.12"
+        )
+        for line in said
     )
+
+
+def test_no_prompt_asks_nothing_marks_nothing_and_closes_chrome(home):
+    *_, n = home
+    result, ctx, asked, said = run(home, [], prompt=False)
+    assert asked == [] and result["submitted"] == 0 and ctx.closed
+    assert n.rows["p1"]["Status"] == {"select": {"name": "Tailored"}}
+    assert said[-1] == "--no-prompt: nothing marked Submitted; closing Chrome."
+
+
+def test_each_application_writes_its_trace(home):
+    tmp, *_ = home
+    run(home, ["", "n", "n"])
+    assert (tmp / "logs" / "apply-J1.json").exists() and (tmp / "logs" / "apply-J3.json").exists()
 
 
 def test_the_first_target_uses_chromes_blank_tab(home):
@@ -218,16 +260,19 @@ def asker(answers, asked):
 
 
 def test_ctrl_c_at_a_prompt_asks_before_closing_chrome(home):
-    _, cfg, rules, conn, n = home
+    tmp, cfg, rules, conn, n = home
     asked = []
 
     @contextmanager
     def fake_browser():
-        yield FakeContext([FakePage([[]]), FakePage([[]])])
+        yield FakeContext([email_page(), email_page()])
+
+    def go(ask, say):
+        return run_apply(conn, cfg, n, rules, VALUES, "", fake_browser, llm(), tmp, ask=ask, say=say)
 
     answers = [KeyboardInterrupt, "n", "", "y", "n"]  # ^C, keep Chrome, then answer as usual
     ask = asker(answers, asked)
-    result = run_apply(conn, cfg, n, rules, VALUES, fake_browser, ask=ask, say=lambda line: None)
+    result = go(ask, lambda line: None)
     assert asked[:3] == [
         "Submit the ones you want in Chrome, then press Enter here.",
         "Close Chrome? [y/N] ",
@@ -239,15 +284,14 @@ def test_ctrl_c_at_a_prompt_asks_before_closing_chrome(home):
     asked.clear()
     said = []
     ask = asker(["", KeyboardInterrupt, "y"], asked)  # ^C at the first y/N, then close
-    result = run_apply(conn, cfg, n, rules, VALUES, fake_browser, ask=ask, say=said.append)
+    result = go(ask, said.append)
     assert asked[-1] == "Close Chrome? [y/N] " and len(asked) == 3
     assert result["submitted"] == 0 and n.rows["p1"]["Status"] == {"select": {"name": "Tailored"}}
     assert said[-1] == "Closing Chrome; rows not answered keep their Status."
 
 
 def test_a_restored_tab_is_left_alone_and_a_new_one_opened(home):
-    restored = FakePage([[]])
-    restored.url = "https://mail.example.com/inbox"
-    pages = [restored, FakePage([[field("1", "Email")]]), FakePage([[field("1", "Email")]])]
+    restored = FakePage([state()], url="https://mail.example.com/inbox")
+    pages = [restored, email_page(), email_page()]
     _, ctx, _, _ = run(home, ["", "n", "n"], pages=pages)
     assert restored.url == "https://mail.example.com/inbox" and ctx.made == 2
