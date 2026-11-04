@@ -252,8 +252,8 @@ def test_the_apply_code_never_submits_presses_keys_or_types_passwords(path):
         r"\.press\(",
         r"press_sequentially",
         r"\.type\(",
-        r"keyboard",
-        r"mouse",
+        r"\.keyboard\b",  # page.keyboard; KeyboardInterrupt is fine
+        r"\.mouse\b",
         r"submit\(",
         r"requestSubmit",
         r"dispatch_?[eE]vent",

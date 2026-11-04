@@ -32,11 +32,17 @@ def row(job_id, company, status="Tailored"):
 
 
 class FakeContext:
+    """A persistent Chrome context: it starts with one blank tab (pages); new_page hands out the rest."""
+
     def __init__(self, pages):
-        self.pages, self.opened, self.closed = list(pages), [], False
+        self.queue, self.opened, self.closed = list(pages), [], False
+        self.pages = [self.queue.pop(0)] if self.queue else []
+        self.opened += self.pages
+        self.made = 0
 
     def new_page(self):
-        page = self.pages.pop(0)
+        self.made += 1
+        page = self.queue.pop(0)
         self.opened.append(page)
         return page
 
@@ -193,3 +199,47 @@ def test_the_opened_line_counts_pages(home, monkeypatch):
     assert any(
         line.startswith("opened J1 (PRI)") and line.endswith("filled 7 fields over 3 pages") for line in said
     )
+
+
+def test_the_first_target_uses_chromes_blank_tab(home):
+    _, ctx, _, _ = run(home, ["", "n", "n"])
+    assert len(ctx.opened) == 2 and ctx.made == 1  # two targets, one new tab
+
+
+def asker(answers, asked):
+    def ask(prompt):
+        asked.append(prompt)
+        got = answers.pop(0)
+        if got is KeyboardInterrupt:
+            raise KeyboardInterrupt
+        return got
+
+    return ask
+
+
+def test_ctrl_c_at_a_prompt_asks_before_closing_chrome(home):
+    _, cfg, rules, conn, n = home
+    asked = []
+
+    @contextmanager
+    def fake_browser():
+        yield FakeContext([FakePage([[]]), FakePage([[]])])
+
+    answers = [KeyboardInterrupt, "n", "", "y", "n"]  # ^C, keep Chrome, then answer as usual
+    ask = asker(answers, asked)
+    result = run_apply(conn, cfg, n, rules, VALUES, fake_browser, ask=ask, say=lambda line: None)
+    assert asked[:3] == [
+        "Submit the ones you want in Chrome, then press Enter here.",
+        "Close Chrome? [y/N] ",
+        "Submit the ones you want in Chrome, then press Enter here.",
+    ]
+    assert result["submitted"] == 1 and n.rows["p1"]["Status"] == {"select": {"name": "Submitted"}}
+
+    n.rows["p1"]["Status"] = {"select": {"name": "Tailored"}}
+    asked.clear()
+    said = []
+    ask = asker(["", KeyboardInterrupt, "y"], asked)  # ^C at the first y/N, then close
+    result = run_apply(conn, cfg, n, rules, VALUES, fake_browser, ask=ask, say=said.append)
+    assert asked[-1] == "Close Chrome? [y/N] " and len(asked) == 3
+    assert result["submitted"] == 0 and n.rows["p1"]["Status"] == {"select": {"name": "Tailored"}}
+    assert said[-1] == "Closing Chrome; rows not answered keep their Status."

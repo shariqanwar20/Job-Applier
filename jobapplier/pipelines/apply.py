@@ -16,11 +16,25 @@ __all__ = ["run_apply"]
 _log = logging.getLogger("jobapplier")
 
 
+class _ClosingError(Exception):
+    """The owner pressed Ctrl-C at a prompt and chose to close Chrome."""
+
+
 def _answer(ask, prompt: str) -> str:
-    try:
-        return ask(prompt).strip().lower()
-    except EOFError:  # Ctrl-D: treat as no
-        return ""
+    """The lowercased answer; Ctrl-D is no. Ctrl-C asks whether to close Chrome rather than closing it
+    with forms half done; no asks the prompt again."""
+    while True:
+        try:
+            return ask(prompt).strip().lower()
+        except EOFError:
+            return ""
+        except KeyboardInterrupt:
+            try:
+                close = ask("Close Chrome? [y/N] ").strip().lower() in ("y", "yes")
+            except (KeyboardInterrupt, EOFError):
+                close = True
+            if close:
+                raise _ClosingError from None
 
 
 def _opened_line(t, r: dict) -> str:
@@ -65,22 +79,26 @@ def run_apply(
         return result
     field_rules = FieldRules.from_config(cfg["apply"])
     with browser() as context:
-        for t in targets:
-            page = context.new_page()
+        for n, t in enumerate(targets):
+            # A persistent context opens with one blank tab; the first target goes there.
+            page = context.pages[0] if n == 0 and context.pages else context.new_page()
             result["opened"] += 1
             try:
                 say(_opened_line(t, prepare(page, t, values, cfg, field_rules)))
             except Exception as exc:  # one page must not stop the others; the tab stays for the owner
                 _log.warning("apply: %s: %s", t.job_id, exc)
                 say(f"opened {t.job_id} ({t.company}) {t.url}: could not prepare it ({exc}); tab left open")
-        _answer(ask, "Submit the ones you want in Chrome, then press Enter here.")
-        for t in targets:
-            if _answer(ask, f"Submitted {t.job_id} ({t.company})? [y/N] ") not in ("y", "yes"):
-                continue
-            try:
-                note = f"Submitted {today().isoformat()} via {urlsplit(t.url).hostname}"
-                mark_submitted(client, t.page["id"], note)
-                result["submitted"] += 1
-            except NotionError as exc:
-                say(f"{t.job_id}: could not set Status in Notion ({exc}); set it to Submitted yourself")
+        try:
+            _answer(ask, "Submit the ones you want in Chrome, then press Enter here.")
+            for t in targets:
+                if _answer(ask, f"Submitted {t.job_id} ({t.company})? [y/N] ") not in ("y", "yes"):
+                    continue
+                try:
+                    note = f"Submitted {today().isoformat()} via {urlsplit(t.url).hostname}"
+                    mark_submitted(client, t.page["id"], note)
+                    result["submitted"] += 1
+                except NotionError as exc:
+                    say(f"{t.job_id}: could not set Status in Notion ({exc}); set it to Submitted yourself")
+        except _ClosingError:
+            say("Closing Chrome; rows not answered keep their Status.")
     return result

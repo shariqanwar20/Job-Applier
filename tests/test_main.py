@@ -361,7 +361,7 @@ def test_apply_opens_the_job_in_chrome_and_marks_it_submitted(home, monkeypatch,
     @contextmanager
     def fake_chrome(profile_dir):
         profiles.append(profile_dir)
-        yield type("Ctx", (), {"new_page": lambda self: page})()
+        yield type("Ctx", (), {"pages": [page]})()
 
     monkeypatch.setattr(app, "make_client", lambda token: n)
     monkeypatch.setattr(app, "chrome", fake_chrome)
