@@ -128,3 +128,11 @@ def test_empty_blocklists_block_nothing(config):
     assert keep(
         Posting("freehire", "1", "Software Developer", "Jobgether", "Toronto", "u", company_type="agency"), r
     )
+
+
+def test_norm_drops_zero_width_characters_and_soft_hyphens():
+    from jobapplier.core.rules import norm
+
+    assert (
+        norm("Sub\u200bmit") == "submit" and norm("Sub\u00admit") == "submit" and norm("Ne\u2060xt") == "next"
+    )

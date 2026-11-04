@@ -13,8 +13,11 @@ __all__ = [
     "mark_pruned",
     "mark_pushed",
     "members",
+    "newly_ready",
     "prunable",
     "pushable",
+    "record_resume",
+    "resume",
     "summarize",
     "total",
 ]
@@ -35,6 +38,8 @@ CREATE TABLE IF NOT EXISTS postings (
   PRIMARY KEY (source, source_id));
 CREATE INDEX IF NOT EXISTS postings_identity ON postings(identity);
 CREATE TABLE IF NOT EXISTS pruned (cluster_id INTEGER PRIMARY KEY, reason TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS resumes (cluster_id INTEGER PRIMARY KEY, pdf TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS ready (job_id TEXT PRIMARY KEY);
 """
 
 
@@ -171,6 +176,23 @@ def prunable(conn: sqlite3.Connection, rules: Rules) -> list[tuple[int, str, str
 
 def mark_pruned(conn: sqlite3.Connection, cluster_id: int, reason: str) -> None:
     conn.execute("INSERT INTO pruned (cluster_id, reason) VALUES (?, ?)", (cluster_id, reason))
+
+
+def record_resume(conn: sqlite3.Connection, cluster_id: int, pdf: str) -> None:
+    conn.execute("INSERT OR REPLACE INTO resumes (cluster_id, pdf) VALUES (?, ?)", (cluster_id, pdf))
+
+
+def resume(conn: sqlite3.Connection, cluster_id: int) -> str | None:
+    row = conn.execute("SELECT pdf FROM resumes WHERE cluster_id = ?", (cluster_id,)).fetchone()
+    return row["pdf"] if row else None
+
+
+def newly_ready(conn: sqlite3.Connection, job_ids: list[str]) -> list[str]:
+    """The job_ids not ready on the previous call, in order; then job_ids becomes the ready set."""
+    before = {r["job_id"] for r in conn.execute("SELECT job_id FROM ready")}
+    conn.execute("DELETE FROM ready")
+    conn.executemany("INSERT OR IGNORE INTO ready (job_id) VALUES (?)", [(j,) for j in job_ids])
+    return [j for j in dict.fromkeys(job_ids) if j not in before]
 
 
 def total(conn: sqlite3.Connection) -> int:

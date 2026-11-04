@@ -13,8 +13,12 @@ __all__ = [
     "attach_resume",
     "create_database",
     "ensure_tailor_schema",
+    "mark_submitted",
+    "prop_text",
     "prune",
     "push",
+    "ready_rows",
+    "row_job_id",
     "set_status",
     "style_database",
 ]
@@ -47,11 +51,12 @@ _SCHEMA = {
     "Link": {"url": {}},
     "Job ID": {"rich_text": {}},
     "Decision": _options("New", "Approve", "Approve + review", "Skip"),
-    "Status": _options("New", "Tailored", "Needs review"),
+    "Status": _options("New", "Tailored", "Needs review", "Reviewed", "Submitted"),
     "Resume": {"files": {}},
     "Notes": {"rich_text": {}},
 }
 _APPROVED = ("Approve", "Approve + review")
+_READY = ("Tailored", "Reviewed")
 
 
 def _title(text: str) -> list[dict]:
@@ -207,7 +212,10 @@ def set_status(client: Client, database_id: str, text: str) -> None:
 
 
 def ensure_tailor_schema(client: Client, ds_id: str) -> None:
-    """Adds Resume, Notes and the tailor Status options to a database made before them. Never removes."""
+    """Adds Resume, Notes and the tailor and apply Status options to a database made before them.
+
+    Never removes.
+    """
     props = call(client.data_sources.retrieve, data_source_id=ds_id)["properties"]
     add = {name: _SCHEMA[name] for name in ("Resume", "Notes") if name not in props}
     status = props.get("Status", {"select": {"options": []}})
@@ -224,26 +232,54 @@ def ensure_tailor_schema(client: Client, ds_id: str) -> None:
         call(client.data_sources.update, data_source_id=ds_id, properties=add)
 
 
-def _decision(page: dict) -> str | None:
-    return ((page["properties"].get("Decision") or {}).get("select") or {}).get("name")
+def _select(page: dict, name: str) -> str | None:
+    return ((page["properties"].get(name) or {}).get("select") or {}).get("name")
+
+
+def prop_text(prop: dict) -> str:
+    """The plain text of a title or rich text property."""
+    return "".join(
+        t.get("plain_text") or t["text"]["content"] for t in prop.get("title") or prop.get("rich_text") or []
+    )
+
+
+def row_job_id(page: dict) -> str:
+    return prop_text(page["properties"].get("Job ID") or {})
+
+
+def _query_all(client: Client, ds_id: str, where: dict | None) -> list[dict]:
+    pages, cursor = [], None
+    while True:
+        more = ({"start_cursor": cursor} if cursor else {}) | ({"filter": where} if where else {})
+        r = call(client.data_sources.query, data_source_id=ds_id, page_size=100, **more)
+        pages += r["results"]
+        if not r.get("has_more"):
+            return pages
+        cursor = r["next_cursor"]
+
+
+def _by_job_id(job_id: str) -> dict:
+    return {"property": "Job ID", "rich_text": {"equals": job_id}}
 
 
 def approved_rows(client: Client, ds_id: str, job_id: str | None = None) -> list[dict]:
     """Pages with Decision Approve or Approve + review and Status New; with job_id, that one row as it is."""
     if job_id:
-        where = {"property": "Job ID", "rich_text": {"equals": job_id}}
-    else:
-        # Decision is matched here, not in the filter: a live select "equals Approve" filter returned no rows
-        # while the rows had that option (2026-11-04); Status "equals New" worked.
-        where = {"property": "Status", "select": {"equals": "New"}}
-    pages, cursor = [], None
-    while True:
-        more = {"start_cursor": cursor} if cursor else {}
-        r = call(client.data_sources.query, data_source_id=ds_id, filter=where, page_size=100, **more)
-        pages += r["results"]
-        if not r.get("has_more"):
-            return pages if job_id else [p for p in pages if _decision(p) in _APPROVED]
-        cursor = r["next_cursor"]
+        return _query_all(client, ds_id, _by_job_id(job_id))
+    # Decision is matched here, not in the filter: a live select "equals Approve" filter returned no rows
+    # while the rows had that option (2026-11-04); Status "equals New" worked.
+    pages = _query_all(client, ds_id, {"property": "Status", "select": {"equals": "New"}})
+    return [p for p in pages if _select(p, "Decision") in _APPROVED]
+
+
+def ready_rows(client: Client, ds_id: str, job_id: str | None = None) -> list[dict]:
+    """Pages with Status Tailored or Reviewed; with job_id, that one row as it is."""
+    if job_id:
+        return _query_all(client, ds_id, _by_job_id(job_id))
+    # Every row, with Status matched here: approved_rows has why a select filter is not trusted, and no
+    # other filter has been checked live.
+    pages = _query_all(client, ds_id, None)
+    return [p for p in pages if _select(p, "Status") in _READY]
 
 
 def attach_resume(client: Client, page_id: str, pdf: Path, status: str, notes: str) -> None:
@@ -260,5 +296,16 @@ def attach_resume(client: Client, page_id: str, pdf: Path, status: str, notes: s
         "Resume": {"files": [{"type": "file_upload", "file_upload": {"id": up["id"]}, "name": pdf.name}]},
         "Status": {"select": {"name": status}},
         "Notes": {"rich_text": _text(notes)},  # empty clears an earlier run's problems
+    }
+    call(client.pages.update, page_id=page_id, properties=props)
+
+
+def mark_submitted(client: Client, page_id: str, note: str) -> None:
+    """Sets Status Submitted and puts note in front of the row's Notes as they are now."""
+    # Read again: the owner may have edited Notes while the browser was open.
+    old = prop_text(call(client.pages.retrieve, page_id=page_id)["properties"].get("Notes") or {})
+    props = {
+        "Status": {"select": {"name": "Submitted"}},
+        "Notes": {"rich_text": _text(f"{note}; {old}" if old else note)},
     }
     call(client.pages.update, page_id=page_id, properties=props)

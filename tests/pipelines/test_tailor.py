@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from pypdf import PdfWriter
 
-from jobapplier.core.clusters import assign, connect
+from jobapplier.core.clusters import assign, connect, resume
 from jobapplier.llm import LlmError
 from jobapplier.pipelines.tailor import run_tailor
 from tests.conftest import AFFIRM_INDEED, FakeNotion
@@ -91,6 +91,7 @@ def test_approved_rows_get_a_resume_and_a_status(home):
     assert n.rows["p3"]["Status"] == {"select": {"name": "New"}} and "Resume" not in n.rows["p3"]
     assert n.rows["p1"]["Resume"]["files"][0]["name"] == "Alex_Example_Affirm_Software_Engineer_II.pdf"
     assert (home[0] / "output" / "Alex_Example_Affirm_Software_Engineer_II.pdf").exists()
+    assert resume(home[2], 1) == str(home[0] / "output" / "Alex_Example_Affirm_Software_Engineer_II.pdf")
     assert len(n.uploads) == 2 and "Software Engineer II" in llm.prompts[0]
     assert "Backend Developer" in llm.prompts[1]
 

@@ -316,8 +316,94 @@ def test_run_discovers_only_when_the_last_discover_is_old_then_tailors(monkeypat
     monkeypatch.setattr(m, "load_config", lambda root: {"schedule": {"discover_every_minutes": 120}})
     monkeypatch.setattr(m, "_discover", lambda: calls.append("discover") or 0)
     monkeypatch.setattr(m, "_tailor", lambda job: calls.append("tailor") or 0)
+    monkeypatch.setattr(m, "_notify_ready", lambda: 0)
     assert m._run() == 0 and calls == ["discover", "tailor"]
     assert m._run() == 0 and calls == ["discover", "tailor", "tailor"]  # discovered just now
     stamp = tmp_path / "data" / "last_discover"
     os.utime(stamp, (stamp.stat().st_mtime - 3 * 3600,) * 2)
     assert m._run() == 0 and calls[-2:] == ["discover", "tailor"]
+
+
+def test_apply_without_a_profile_names_the_example(home, capsys):
+    root, _ = home
+    set_ids(root)
+    assert app.main(["apply"]) == 1
+    assert "profile.example.yaml" in capsys.readouterr().out
+
+
+def test_apply_opens_the_job_in_chrome_and_marks_it_submitted(home, monkeypatch, rules, capsys):
+    from contextlib import contextmanager
+
+    from tests.apply.test_browser import FakePage
+    from tests.apply.test_fill import field
+
+    root, _ = home
+    set_ids(root)
+    shutil.copy(Path(app.__file__).parents[1] / "profile.example.yaml", root / "profile.yaml")
+    (root / "data").mkdir()
+    conn = clusters.connect(str(root / "data" / "jobs.db"))
+    clusters.assign(conn, AFFIRM_INDEED, rules, datetime(2026, 11, 1, tzinfo=UTC), False)
+    (root / "output").mkdir()
+    (root / "output" / "A_J1.pdf").write_bytes(b"%PDF")
+    clusters.record_resume(conn, 1, str(root / "output" / "A_J1.pdf"))
+    conn.commit()
+    n = FakeNotion()
+    n.rows = {
+        "p1": {
+            "Company": {"rich_text": [{"text": {"content": "Affirm"}}]},
+            "Job ID": {"rich_text": [{"text": {"content": "J1"}}]},
+            "Status": {"select": {"name": "Tailored"}},
+            "Resume": {"files": [{"name": "A_J1.pdf"}]},
+        }
+    }
+    page, profiles = FakePage([[field("1", "First Name")]]), []
+
+    @contextmanager
+    def fake_chrome(profile_dir):
+        profiles.append(profile_dir)
+        yield type("Ctx", (), {"pages": [page]})()
+
+    monkeypatch.setattr(app, "make_client", lambda token: n)
+    monkeypatch.setattr(app, "chrome", fake_chrome)
+    answers = iter(["", "y"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    assert app.main(["apply", "--job", "J1"]) == 0
+    assert profiles == [root / "data" / "browser-profile"]
+    assert page.url == "https://job-boards.greenhouse.io/affirm/jobs/8042399003"
+    assert page.done == [("fill", "1", "Alex")]
+    assert n.rows["p1"]["Status"] == {"select": {"name": "Submitted"}}
+    assert "opened J1 (Affirm)" in capsys.readouterr().out
+
+
+def _ready_row(job_id):
+    return {
+        "Job ID": {"rich_text": [{"text": {"content": job_id}}]},
+        "Status": {"select": {"name": "Tailored"}},
+        "Resume": {"files": [{"name": f"A_{job_id}.pdf"}]},
+    }
+
+
+def test_run_notifies_once_per_newly_ready_row_and_opens_no_browser(home, monkeypatch):
+    root, notes = home
+    set_ids(root)
+    n = FakeNotion()
+    n.rows = {"p1": _ready_row("J1"), "p2": _ready_row("J2")}
+    monkeypatch.setattr(app, "make_client", lambda token: n)
+    monkeypatch.setattr(app, "_discover", lambda: 0)
+    monkeypatch.setattr(app, "_tailor", lambda job: 0)
+    monkeypatch.setattr(app, "chrome", lambda *a: pytest.fail("run must not open Chrome"))
+    run = "uv run python -m jobapplier apply"
+    assert app.main(["run"]) == 0
+    assert notes == [("JobApplier", f"2 applications ready: run `{run}`")]
+    assert app.main(["run"]) == 0 and len(notes) == 1  # the same rows: no second notice
+    n.rows["p3"] = _ready_row("J3")
+    assert app.main(["run"]) == 0
+    assert notes[-1] == ("JobApplier", f"1 application ready: run `{run}`")
+
+
+def test_run_checks_ready_rows_even_when_tailor_fails(home, monkeypatch):
+    calls = []
+    monkeypatch.setattr(app, "_discover", lambda: 0)
+    monkeypatch.setattr(app, "_tailor", lambda job: 1)
+    monkeypatch.setattr(app, "_notify_ready", lambda: calls.append(1) or 0)
+    assert app.main(["run"]) == 1 and calls == [1]

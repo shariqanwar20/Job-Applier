@@ -14,8 +14,10 @@ from jobapplier.notion.push import (
     attach_resume,
     create_database,
     ensure_tailor_schema,
+    mark_submitted,
     prune,
     push,
+    ready_rows,
     set_status,
     style_database,
 )
@@ -365,7 +367,13 @@ def test_new_databases_have_the_tailor_properties():
     create_database(n, "parent1", "Role Search")
     props = n.calls[0][1]["initial_data_source"]["properties"]
     assert props["Resume"] == {"files": {}} and props["Notes"] == {"rich_text": {}}
-    assert [o["name"] for o in props["Status"]["select"]["options"]] == ["New", "Tailored", "Needs review"]
+    assert [o["name"] for o in props["Status"]["select"]["options"]] == [
+        "New",
+        "Tailored",
+        "Needs review",
+        "Reviewed",
+        "Submitted",
+    ]
 
 
 def test_ensure_tailor_schema_adds_only_what_is_missing_and_keeps_options():
@@ -386,6 +394,8 @@ def test_ensure_tailor_schema_adds_only_what_is_missing_and_keeps_options():
                     {"id": "o1", "name": "New", "color": "gray"},
                     {"name": "Tailored"},
                     {"name": "Needs review"},
+                    {"name": "Reviewed"},
+                    {"name": "Submitted"},
                 ]
             }
         },
@@ -460,3 +470,34 @@ def test_attach_resume_without_notes_clears_old_notes(tmp_path):
     pdf.write_bytes(b"x")
     attach_resume(n, "p1", pdf, "Tailored", "")
     assert n.rows["p1"]["Notes"] == {"rich_text": []} and n.rows["p1"]["Status"] == sel("Tailored")
+
+
+def _ready(job_id, status, resume=True):
+    files = [{"name": f"A_{job_id}.pdf"}] if resume else []
+    return {**row(job_id, status=status), "Resume": {"files": files}}
+
+
+def test_ready_rows_are_tailored_or_reviewed_with_a_resume_matched_in_code():
+    n = FakeNotion()
+    n.rows = {
+        "p1": _ready("J1", "Tailored"),
+        "p2": _ready("J2", "Reviewed"),
+        "p3": _ready("J3", "Needs review"),
+        "p4": _ready("J4", "Submitted"),
+        "p5": _ready("J5", "New", resume=False),
+        "p6": _ready("J6", "Reviewed", resume=False),  # the PDF comes from SQLite, not the row
+    }
+    assert [p["id"] for p in ready_rows(n, "ds1")] == ["p1", "p2", "p6"]
+    [(_, kw)] = [c for c in n.calls if c[0] == "data_sources.query"]
+    assert "filter" not in kw  # no Notion filter has been checked live for this, so Status is matched in code
+    assert [p["id"] for p in ready_rows(n, "ds1", "J4")] == ["p4"]  # one row, whatever its Status
+
+
+def test_mark_submitted_sets_status_and_keeps_the_current_notes_after_the_new_one():
+    n = FakeNotion()
+    n.rows = {"p1": {**row("J1", status="Tailored"), "Notes": {"rich_text": [{"text": {"content": "old"}}]}}}
+    n.rows["p1"]["Notes"] = {"rich_text": [{"text": {"content": "edited while Chrome was open"}}]}
+    mark_submitted(n, "p1", "Submitted 2026-11-04 via x")
+    assert n.rows["p1"]["Status"] == sel("Submitted")
+    notes = n.rows["p1"]["Notes"]["rich_text"][0]["text"]["content"]
+    assert notes == "Submitted 2026-11-04 via x; edited while Chrome was open"

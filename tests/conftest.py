@@ -92,7 +92,9 @@ class FakeNotion:
     def _query(self, data_source_id, **kw):
         self.calls.append(("data_sources.query", {"data_source_id": data_source_id, **kw}))
         hits = [
-            {"id": pid, "properties": p} for pid, p in self.rows.items() if self._matches(p, kw["filter"])
+            {"id": pid, "properties": p}
+            for pid, p in self.rows.items()
+            if "filter" not in kw or self._matches(p, kw["filter"])
         ]
         return {"results": hits[: kw["page_size"]], "has_more": False, "next_cursor": None}
 

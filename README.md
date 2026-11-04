@@ -1,6 +1,6 @@
 # JobApplier
 
-Every two hours, JobApplier pulls fresh software developer postings in Canada from FreeHire, Indeed and LinkedIn, drops duplicates and title-filtered noise, ranks what is left (new grad first, then by city), and adds new rows to a Notion database. You review the rows in Notion. Every 30 minutes it also makes a one-page tailored resume PDF for each row you approve and attaches it to the row; you apply with it yourself (the apply steps are not built yet).
+Every two hours, JobApplier pulls fresh software developer postings in Canada from FreeHire, Indeed and LinkedIn, drops duplicates and title-filtered noise, ranks what is left (new grad first, then by city), and adds new rows to a Notion database. You review the rows in Notion. Every 30 minutes it also makes a one-page tailored resume PDF for each row you approve and attaches it to the row; `apply` then opens each ready application in Chrome, pre-filled, and you submit it yourself.
 
 Sources: the FreeHire public API, and LinkedIn and Indeed through [python-jobspy](https://github.com/speedyapply/JobSpy) (list pages only, throttled with a delay between requests).
 
@@ -10,6 +10,7 @@ Sources: the FreeHire public API, and LinkedIn and Indeed through [python-jobspy
 - [uv](https://docs.astral.sh/uv/)
 - A Notion account
 - For tailoring: [Claude Code](https://claude.com/claude-code) signed in, and [tectonic](https://tectonic-typesetting.github.io/) (`brew install tectonic`)
+- For applying: Google Chrome installed (Playwright drives it; no browser download)
 
 ## Setup
 
@@ -122,6 +123,45 @@ Writing style: the model must use two Claude Code skills that ship in the repo, 
 
 To try one row, whatever its Decision: `uv run python -m jobapplier tailor --job J27`.
 
+## Apply
+
+`apply` opens each ready row's application page in Chrome and pre-fills it, page by page. **It never clicks Submit or Apply, never creates an account and never types a password.** You check the form and submit it.
+
+1. Copy `profile.example.yaml` to `profile.yaml` (git-ignored) and put your answers in: name, email, phone, location, links, work authorization, start date, relocation, salary and `voluntary_self_id`.
+2. In Notion, approve a row. The PDF appears and Status becomes **Tailored** or **Needs review**.
+3. For Needs review, read the PDF, then set Status to **Reviewed**.
+4. Run it, check each tab, submit the ones you want, then answer `y` for each one you submitted:
+
+   ```
+   uv run python -m jobapplier apply
+   ```
+
+   `y` sets Status to **Submitted** and writes "Submitted <date> via <host>" in Notes; `N` leaves the row as it was. Chrome closes after the last answer. Ctrl-C at a prompt asks "Close Chrome? [y/N]"; N goes back to the prompt. `--job J27` opens one row whatever its Status.
+
+Rows with Status Tailored or Reviewed open, at most `apply.max_tabs` (8) per run. The command prints what it opened and what it skipped, and why: a row whose only links are job boards (`rules.aggregator_hosts`; paste the employer's posting into the row's Link and run again), or a row with no tailored PDF on record (the PDF `tailor` made, as recorded in `data/jobs.db`; a row tailored before `apply` existed needs `tailor --job J27` once more). A Lever, Ashby, Breezy or SmartRecruiters job page is turned into its application page; a Greenhouse page holds the form already.
+
+In each tab it uploads the tailored PDF to the resume field first (a site's resume parser overwrites fields), waits `apply.parser_wait_seconds`, then fills the visible fields its rules know (`apply.fields`: each rule maps label words to a `profile.yaml` key, first match wins). It only fills an empty field, except name, email and phone, which it sets to your profile's. A label with a word from `apply.skip_words` (contact name, contact person, emergency, manager, extension, reference, referral) is never filled, so another person's name or phone stays empty; your own "Contact email" or "Contact number" is filled. A free-text "which cities" relocation question gets `relocation.cities`; a yes/no one gets `relocation.willing`. Demographic questions get the "prefer not to say" option when `voluntary_self_id` is `decline`. It ticks a checkbox only when its label has a consent word (`apply.consent_words`), a policy word (`apply.policy_words`: terms, privacy, policy, accurate, read, ...) and no opt-in word (`apply.opt_in_words`: receive, contacted, future, similar, roles, network, share, email, newsletter, ...). So "I have read and agree to the privacy policy" is ticked and "I agree to hear about similar openings" is not. A required box left unticked stops the walk and is listed for you. `apply.tick_opt_ins: true` ticks every box with a consent word. It leaves hidden fields and honeypots alone: a field hidden by CSS (also through a parent), moved off the page, clipped to nothing, or inside `aria-hidden` is not filled.
+
+Multi-page forms: after filling a page, it clicks a button in the form whose visible text starts with a phrase from `apply.next_words` (Next, Continue, Proceed, Save & Continue) and has at most `apply.next_max_extra_words` (5) more words, none of them from `apply.next_deny_words` (so "Next: Experience" and "Continue to step 3" are clicked; "Next month" and "Continue reading" are not). It then waits `apply.next_wait_seconds` and fills the next page, up to `apply.max_pages` (8). A button is never clicked when any source of its name (aria-label, labelled-by text, text, value, title) has a word from `apply.submit_words` (Submit, Apply, Send, Finish, Confirm, ...), a word starting with one of `apply.submit_stems` (submission, finalize, confirmation, post, ...), a non-Latin look-alike letter, or a sign-in word ("Continue with Google"). The name is read again right before the click, and the click is bound to the next text so Chrome checks it once more. It stops and leaves the page to you when:
+
+- any visible button on the page is a submit button, including an unnamed one (the last step);
+- a required field is still empty;
+- a sign-in or sign-up page appears;
+- there is no next button;
+- the page did not change after the click (usually a validation error on the page);
+- the page broke during the walk (it navigated away or closed).
+
+A note at the top of the page where it stopped says how many fields it filled, why it stopped and which required fields are still empty; click the note to close it. Use the form's Back button to check the earlier pages.
+
+The scheduled `run` never opens a browser. When rows become ready, it sends one notification: "N applications ready: run `uv run python -m jobapplier apply`".
+
+### Logins
+
+A page with a password field, or a URL or title with `apply.login_words` (sign in, create account, ...), is not filled; its note says to sign in yourself. Chrome uses its own profile in `data/browser-profile`, kept between runs, so a sign-in you do there stays.
+
+- To install the 1Password extension in that profile once, run `apply` with any row and open the Chrome Web Store in a tab.
+- On Workday-style sign-in or sign-up pages, use 1Password's autofill or password generator yourself.
+
 ## Run once by hand
 
 ```
@@ -138,7 +178,7 @@ Run this from the repo root. It writes `~/Library/LaunchAgents/local.jobapplier.
 uv run python -m jobapplier install-agent
 ```
 
-The agent runs `python -m jobapplier run` once when loaded, then every 30 minutes: discover when the last discover is older than `schedule.discover_every_minutes` (120), then tailor approved rows. A run missed while the Mac slept happens on wake. Logs go to `logs/jobapplier.log`. Running it again reinstalls the agent. To remove it:
+The agent runs `python -m jobapplier run` once when loaded, then every 30 minutes: discover when the last discover is older than `schedule.discover_every_minutes` (120), then tailor approved rows, then notify you when rows became ready to apply. A run missed while the Mac slept happens on wake. Logs go to `logs/jobapplier.log`. Running it again reinstalls the agent. To remove it:
 
 ```
 uv run python -m jobapplier uninstall-agent

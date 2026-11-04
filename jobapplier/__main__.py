@@ -11,13 +11,18 @@ from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 
+from playwright.sync_api import Error as PlaywrightError
+
 from jobapplier import llm
+from jobapplier.apply.browser import chrome
+from jobapplier.apply.profile import ProfileError, load_profile, profile_values
 from jobapplier.config import load_config, load_env
 from jobapplier.core import clusters
 from jobapplier.core.rules import Rules
 from jobapplier.mail.gmail import Gmail, MailError, sign_in
 from jobapplier.notion.client import NotionError, make_client
-from jobapplier.notion.push import create_database, style_database
+from jobapplier.notion.push import create_database, ready_rows, row_job_id, style_database
+from jobapplier.pipelines.apply import run_apply
 from jobapplier.pipelines.discover import run_discover
 from jobapplier.pipelines.tailor import run_tailor
 from jobapplier.sources import build_sources
@@ -48,6 +53,10 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser(
         "run", help="the scheduled step: discover when the last one is old enough, then tailor approved rows"
     )
+    apply = commands.add_parser(
+        "apply", help="open ready rows in Chrome, pre-filled; you submit, then answer which ones you did"
+    )
+    apply.add_argument("--job", help="open only this Job ID (e.g. J27), whatever its Status")
     commands.add_parser("install-agent", help="run `run` every 30 minutes via a launchd LaunchAgent")
     commands.add_parser("uninstall-agent", help="remove the LaunchAgent")
     args = parser.parse_args(argv)
@@ -70,6 +79,8 @@ def main(argv: list[str] | None = None) -> int:
         return _tailor(args.job)
     if args.command == "run":
         return _run()
+    if args.command == "apply":
+        return _apply(args.job)
     return _discover()
 
 
@@ -83,7 +94,60 @@ def _run() -> int:
         if code == 0:
             stamp.parent.mkdir(exist_ok=True)
             stamp.touch()
-    return _tailor(None) or code
+    code = _tailor(None) or code
+    return _notify_ready() or code
+
+
+def _notify_ready() -> int:
+    """One notice when rows became ready to apply since the last tick. Never opens a browser: the owner
+    may be away."""
+    try:
+        cfg = load_config(_ROOT)
+        token, ds_id = os.environ.get("NOTION_TOKEN"), cfg["notion"]["data_source_id"]
+        if not (token and ds_id):
+            return 0  # tailor already reported the missing setup
+        (_ROOT / "data").mkdir(exist_ok=True)
+        with locked(str(_ROOT / "data" / "run.lock")) as got:
+            if not got:
+                return 0
+            conn = clusters.connect(str(_ROOT / "data" / "jobs.db"))
+            new = clusters.newly_ready(conn, [row_job_id(p) for p in ready_rows(make_client(token), ds_id)])
+            conn.commit()
+        if new:
+            what = f"{len(new)} application{'s' if len(new) > 1 else ''} ready"
+            notify("JobApplier", f"{what}: run `uv run python -m jobapplier apply`")
+        return 0
+    except Exception:
+        _log.exception("ready check failed")
+        return 1
+
+
+def _apply(job_id: str | None) -> int:
+    """Interactive, so no lock: it only reads SQLite and sets Status in Notion."""
+    cfg = load_config(_ROOT)
+    token = _notion_token(cfg)
+    if token is None:
+        return 1
+    try:
+        values = profile_values(load_profile(_ROOT / "profile.yaml"))
+    except ProfileError as exc:
+        print(exc)
+        return 1
+    (_ROOT / "data").mkdir(exist_ok=True)
+    conn = clusters.connect(str(_ROOT / "data" / "jobs.db"))
+    browser = partial(chrome, _ROOT / cfg["apply"]["browser_profile"])
+    try:
+        rules = Rules.from_config(cfg)
+        # input passed here, not as run_apply's default, so it is looked up when called
+        result = run_apply(conn, cfg, make_client(token), rules, values, browser, job_id, ask=input)
+    except NotionError as exc:
+        print(f"notion: {exc}")
+        return 1
+    except PlaywrightError as exc:  # most often: Google Chrome is not installed
+        print(f"Chrome: {exc}")
+        return 1
+    print(f"apply done: {result}")
+    return 0
 
 
 def _install_agent() -> int:

@@ -9,8 +9,11 @@ from jobapplier.core.clusters import (
     employer,
     mark_pushed,
     members,
+    newly_ready,
     prunable,
     pushable,
+    record_resume,
+    resume,
     summarize,
 )
 from jobapplier.core.identity import posting_identity
@@ -363,3 +366,19 @@ def test_user_aliases_and_noise_words_extend_the_rules(config):
 def test_employer_drops_noise_and_parentheticals_but_not_aliases(rules):
     assert employer("Acme Inc. (Canada)", rules) == "acme"
     assert employer("Amazon Web Services (AWS)", rules) == "amazon web services"
+
+
+def test_resume_is_recorded_per_cluster_and_the_latest_wins():
+    conn = connect(":memory:")
+    assert resume(conn, 1) is None
+    record_resume(conn, 1, "/out/A.pdf")
+    record_resume(conn, 1, "/out/A_J1.pdf")
+    assert resume(conn, 1) == "/out/A_J1.pdf"
+
+
+def test_newly_ready_returns_rows_not_ready_on_the_previous_call():
+    conn = connect(":memory:")
+    assert newly_ready(conn, ["J1", "J2"]) == ["J1", "J2"]
+    assert newly_ready(conn, ["J2", "J1"]) == []
+    assert newly_ready(conn, ["J2", "J3"]) == ["J3"]
+    assert newly_ready(conn, ["J1"]) == ["J1"]  # J1 left the ready set, so it is new again
