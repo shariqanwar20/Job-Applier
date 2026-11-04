@@ -509,3 +509,23 @@ def test_only_a_button_in_the_form_that_holds_the_fields_is_a_next_button(rules)
 )
 def test_consent_words_never_tick_a_marketing_or_contact_opt_in(label, rules):
     assert plan([field("1", label, type="checkbox", value="on")], VALUES, rules, "") == []
+
+
+@pytest.mark.parametrize(
+    ("label", "want"),
+    [
+        ("Contact number", "+1 416 555 0100"),
+        ("Contact email", "alex@example.com"),
+        ("Preferred contact phone", "+1 416 555 0100"),
+        ("Preferred contact email", "alex@example.com"),
+    ],
+)
+def test_the_owners_own_contact_fields_are_filled(label, want, rules):
+    assert one(field(label=label), rules) == [("fill", want)]
+
+
+@pytest.mark.parametrize(
+    "label", ["Contact name", "Contact person", "Emergency contact phone", "Relationship to contact"]
+)
+def test_another_persons_contact_fields_are_skipped(label, rules):
+    assert one(field(label=label), rules) == []

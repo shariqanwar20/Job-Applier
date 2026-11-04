@@ -111,8 +111,9 @@ apply:  # `apply` opens ready rows in Chrome and pre-fills the form; you check i
   consent_words: [consent, agree, acknowledge, privacy, terms, certify, accurate, true and complete, authorize]
   opt_in_words: [receive, contacted, contact me, communications, future opportunities, future openings, future roles, talent community, talent pool, subscribe, updates, newsletter, whatsapp, text, texts, sms, text message, marketing, promotional, partners, retain, retaining, job alerts]
   tick_opt_ins: false
-  # A label with one of these word starts is never filled from profile.yaml (someone else's name or phone).
-  skip_words: [contact, manager, emergency, extension, reference, referr]
+  # A label with one of these word starts is never filled from profile.yaml: someone else's name or phone
+  # ("Contact name", "Emergency contact"); your own "Contact email" or "Contact number" is still filled.
+  skip_words: [contact name, contact person, relation, emergency, manager, extension, reference, referr]
   # The option picked for a demographic question when profile.yaml has voluntary_self_id: decline.
   decline_words: [prefer not, decline, do not wish, don t wish, not to answer, not to disclose, not to say, choose not, rather not, not wish to]
   # Field label -> profile.yaml key. The first rule with a pattern in the label wins (whole words, normalized
@@ -132,7 +133,7 @@ apply:  # `apply` opens ready rows in Chrome and pre-fills the form; you check i
     - {patterns: [last name, family name, surname, nom de famille], key: name.last}
     - {patterns: [full name, legal name, your name, name], key: name.full, whole: true}
     - {patterns: [email, e mail, courriel], key: email}
-    - {patterns: [phone, mobile, telephone, cell], key: phone}
+    - {patterns: [phone, mobile, telephone, cell, contact number], key: phone}
     - {patterns: [linkedin], key: links.linkedin}
     - {patterns: [github], key: links.github}
     - {patterns: [website, portfolio, personal site, personal url], key: [links.website, links.github]}
