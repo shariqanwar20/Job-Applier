@@ -54,3 +54,15 @@ llm:  # headless Claude Code calls (`claude -p`) on your subscription
   claude: /opt/homebrew/bin/claude
   timeout_seconds: 300
   models: {tailor: claude-sonnet-5-5, classify: claude-haiku-5-5}
+tailor:  # a one-page resume per approved row, from resume/master.tex; see README "Tailoring"
+  master: resume/master.tex
+  max_words: 25                  # per resume line
+  max_description_chars: 12000   # of the job description sent to the model
+  # A capitalized or technology word (Go, Node.js, C++) the model adds must be in the master line it rewords,
+  # or in this list (case-insensitive). These are the usual first words of a resume line.
+  allow_words: [a, an, the, and, built, wrote, made, added, designed, developed, created, implemented, improved, reduced, cut, fixed, tested, automated, moved, migrated, deployed, maintained, worked, ran, used, set, refactored, integrated, configured, documented, reviewed, delivered, increased, sped, helped, supported, contributed, assisted]
+  # Never in a rewritten line (whole words, case-insensitive); seeded from Humanizer's AI-vocabulary list.
+  banned_phrases: [delve, delved, leverage, leveraged, leveraging, robust, showcase, showcased, pivotal, crucial, spearheaded, testament, seamless, seamlessly, cutting-edge]
+  # A line may use one of inflating_verbs only when its master line does and has none of modest_verbs.
+  inflating_verbs: [led, owned, architected, spearheaded, drove]
+  modest_verbs: [contributed, assisted, helped, supported]

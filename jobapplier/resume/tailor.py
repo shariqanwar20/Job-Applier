@@ -1,0 +1,122 @@
+"""One LLM call that picks, orders and rewords master lines for a job; every changed line is checked."""
+
+from jobapplier.resume.grounding import escape, grounding_problems, style_problems
+from jobapplier.resume.master import Item, plain
+
+__all__ = ["tailor"]
+
+_STR = {"type": "string"}
+_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "sections": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "section": _STR,
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {"id": _STR, "text": _STR, "new": _STR, "source": _STR},
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["section", "items"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["sections"],
+    "additionalProperties": False,
+}
+
+_RULES = """\
+Tailor my resume to the job below. Write every line you reword or add with the humanizer skill and then
+the asd-ste100 skill, in embedded mode: apply them and return only the final text, with no notes.
+
+Return the lines to print, section by section, in the order to print them. Each line is one of:
+- {{"id": ID}} to keep a master line as it is;
+- {{"id": ID, "text": TEXT}} to reword a master line;
+- {{"new": TEXT, "source": ID}} to add a line that comes from exactly one master line.
+
+Rules:
+- The resume must fit on one page. Leave out optional lines that do not help with this job.
+- Always keep the lines marked (required).
+- Never invent facts. Every number, technology, employer and job title must be in the master line.
+- Use the job description's terms only where the master line supports them.
+- Write plain text: no LaTeX, no backslashes or braces, no dashes as punctuation.
+- At most {max_words} words per line.
+- Never use these words: {banned}.
+"""
+
+
+def _prompt(items: list[Item], job: dict, cfg: dict) -> str:
+    t = cfg["tailor"]
+    lines, section = [], None
+    for i in items:
+        if i.section != section:
+            section = i.section
+            lines.append(f"\n## {section}")
+        lines.append(f"- {i.id}{' (required)' if i.required else ''}: {plain(i.text)}")
+    return (
+        _RULES.format(max_words=t["max_words"], banned=", ".join(t["banned_phrases"]))
+        + f"\nJob: {job['title']} at {job['company']}\n\nJob description:\n"
+        + job["description"][: t["max_description_chars"]]
+        + "\n\nMaster resume lines (id: text):"
+        + "\n".join(lines)
+        + "\n"
+    )
+
+
+def _check(answer: dict, by_id: dict[str, Item], cfg: dict) -> tuple[list[dict], list[str], list[str]]:
+    """(plan, grounding problems, style problems); a rejected line is already back to its master text."""
+    plan, problems, style = [], [], []
+    for e in (x for s in answer.get("sections", []) for x in s.get("items", [])):
+        anchor = e.get("source") if "new" in e else e.get("id")
+        if anchor not in by_id:
+            problems.append(f"{anchor}: not a master id; line left out")
+            continue
+        text = e.get("new", e.get("text"))
+        master = plain(by_id[anchor].text)
+        if text is None or ("new" not in e and text == master):
+            plan.append({"id": anchor})
+            continue
+        if why := grounding_problems(text, master, cfg["tailor"]):
+            problems.append(f"{anchor}: {'; '.join(why)}; kept the master line")
+        elif why := style_problems(text, cfg["tailor"]):
+            style.append(f"{anchor}: {'; '.join(why)}")
+        else:
+            plan.append(
+                {"new": escape(text), "source": anchor}
+                if "new" in e
+                else {"id": anchor, "text": escape(text)}
+            )
+            continue
+        plan.append({"id": anchor})
+    seen: set[str] = set()
+    unique = []
+    for e in plan:  # a reverted added line can repeat its source
+        if "id" in e and e["id"] in seen:
+            continue
+        seen.add(e.get("id", ""))
+        unique.append(e)
+    return unique, problems, style
+
+
+def tailor(items: list[Item], job: dict, cfg: dict, llm_run) -> tuple[list[dict], list[str]]:
+    """(plan for master.render, problems). job has company, title and description.
+
+    A style failure asks once more with the problems listed; after that, failing lines keep master text.
+    """
+    by_id = {i.id: i for i in items}
+    prompt, model = _prompt(items, job, cfg), cfg["llm"]["models"]["tailor"]
+    plan, problems, style = _check(llm_run(prompt, _SCHEMA, model, writing=True), by_id, cfg)
+    if style:
+        retry = (
+            prompt + "\nYour last answer broke these rules. Fix them:\n" + "\n".join(f"- {s}" for s in style)
+        )
+        plan, problems, style = _check(llm_run(retry, _SCHEMA, model, writing=True), by_id, cfg)
+    return plan, problems + [f"{s}; kept the master line" for s in style]
