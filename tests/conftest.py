@@ -85,6 +85,8 @@ class FakeNotion:
         if "or" in f:
             return any(self._matches(props, g) for g in f["or"])
         p = props.get(f["property"], {})
+        if "files" in f:
+            return bool(p.get("files"))
         if "select" in f:
             return (p.get("select") or {}).get("name") == f["select"]["equals"]
         return "".join(t["text"]["content"] for t in p.get("rich_text", [])) == f["rich_text"]["equals"]
