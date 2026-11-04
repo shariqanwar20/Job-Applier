@@ -85,6 +85,7 @@ def one(f, rules, description=""):
         ("Do you require visa sponsorship?", "No"),
         ("Will you now or in the future require sponsorship for employment?", "No"),
         ("Are you willing to relocate?", "Yes"),
+        ("Will you require employer sponsorship to work for us?", "No"),
         ("When can you start?", "Two weeks after an offer"),
         ("Desired salary", "85000"),
     ],
