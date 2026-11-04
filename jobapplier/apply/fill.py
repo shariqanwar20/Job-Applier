@@ -74,8 +74,9 @@ _READ = (
     parts.push(el.getAttribute('aria-label') || '', el.getAttribute('placeholder') || '');
     return parts.filter(Boolean).join(' ');
   };
-  const before = el => {
-    for (let n = el; n && n !== document.body; n = n.parentElement)
+  const before = el => {  // stops at the field's own form or fieldset: text past it is another question
+    const box = el.closest('fieldset, form');
+    for (let n = el; n && n !== box && n !== document.body; n = n.parentElement)
       for (let s = n.previousElementSibling; s; s = s.previousElementSibling) {
         const t = text(s);
         if (t) return t.slice(-200);

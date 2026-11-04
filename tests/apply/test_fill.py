@@ -386,3 +386,10 @@ def test_a_free_text_relocation_question_gets_the_cities(rules):
 
 def test_a_search_box_is_not_a_form_field(rules):
     assert one(field(label="City", type="search"), rules) == []
+
+
+def test_the_text_before_a_field_is_looked_for_only_inside_its_form_or_fieldset():
+    # The page script runs only in a browser; this pins the bound it walks to.
+    from jobapplier.apply import fill
+
+    assert "el.closest('fieldset, form')" in fill._READ and "n !== box" in fill._READ
