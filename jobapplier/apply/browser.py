@@ -13,7 +13,9 @@ from jobapplier.apply.fill import (
     fill_page,
     is_login,
     missing_required,
+    next_button,
     plan,
+    read_buttons,
     read_fields,
     resume_input,
 )
@@ -76,35 +78,65 @@ def _banner(page, head: str, lines: list[str]) -> None:
     page.evaluate(_BANNER, [head, lines])
 
 
-def prepare(page, target: Target, values: dict, cfg: dict, rules: FieldRules) -> dict:
-    """Opens target.url in page, uploads the resume, fills what the profile answers and shows a banner.
+def _settle(page, seconds: float) -> None:
+    with suppress(PlaywrightError):  # pages with live chat or analytics never go idle; the form is there
+        page.wait_for_load_state("networkidle", timeout=seconds * 1000)
 
-    Returns {"filled": n, "missing": [required labels still empty], "login": bool}.
+
+def _signature(page, fields: list[dict], buttons: list[dict]) -> tuple:
+    """What the page shows; the same before and after a next click means the form refused the step."""
+    return page.url, [(f["type"], f["name"], f["label"]) for f in fields], [b["name"] for b in buttons]
+
+
+def prepare(page, target: Target, values: dict, cfg: dict, rules: FieldRules) -> dict:
+    """Opens target.url in page, uploads the resume and fills each page of the form, clicking next between
+    pages, then shows a banner where it stopped. Never on a submit button: the owner submits.
+
+    Returns {"filled": n, "missing": [required labels still empty], "login": bool, "pages": pages seen}.
     """
     a = cfg["apply"]
     timeout = a["field_timeout_seconds"] * 1000
     page.goto(target.url, wait_until="domcontentloaded", timeout=a["load_timeout_seconds"] * 1000)
-    with suppress(PlaywrightError):  # pages with live chat or analytics never go idle; the form is there
-        page.wait_for_load_state("networkidle", timeout=a["load_timeout_seconds"] * 1000)
-    fields = read_fields(page)
-    if is_login(page.url, page.title(), fields, rules):
-        _banner(page, LOGIN_NOTE, [])
-        return {"filled": 0, "missing": [], "login": True}
-    notes = []
-    upload = resume_input(fields)
-    # Upload first: a resume parser overwrites fields filled before it runs.
-    if upload and fill_page(page, [("set_input_files", upload, str(target.pdf), "resume")], timeout):
-        notes.append(f"Uploaded {target.pdf.name}.")
-        page.wait_for_timeout(a["parser_wait_seconds"] * 1000)
+    _settle(page, a["load_timeout_seconds"])
+    filled, uploaded, notes = 0, False, []
+    for number in range(1, a["max_pages"] + 1):
         fields = read_fields(page)
-    else:
+        if is_login(page.url, page.title(), fields, rules):
+            _banner(page, LOGIN_NOTE, [])
+            return {"filled": filled, "missing": [], "login": True, "pages": number}
+        upload = None if uploaded else resume_input(fields)
+        # Upload first: a resume parser overwrites fields filled before it runs.
+        if upload and fill_page(page, [("set_input_files", upload, str(target.pdf), "resume")], timeout):
+            uploaded = True
+            notes.append(f"Uploaded {target.pdf.name}.")
+            page.wait_for_timeout(a["parser_wait_seconds"] * 1000)
+            fields = read_fields(page)
+        filled += fill_page(page, plan(fields, values, rules, target.description), timeout)
+        after, buttons = read_fields(page), read_buttons(page)
+        missing = missing_required(after)
+        button, stop = next_button(buttons, rules)
+        if missing:
+            stop = f"Required and still empty: {', '.join(missing)}"
+        elif number == a["max_pages"] and button:
+            stop = f"Stopped after apply.max_pages ({number}) pages: continue yourself."
+        if stop:
+            break
+        before = _signature(page, after, buttons)
+        try:
+            _click_next(page.locator(f'[data-jobapplier-button="{button}"]'), rules, timeout)
+        except ClickRefusedError as exc:
+            stop = f"{exc}; continue yourself."
+            break
+        _settle(page, a["load_timeout_seconds"])
+        page.wait_for_timeout(a["next_wait_seconds"] * 1000)
+        if _signature(page, read_fields(page), read_buttons(page)) == before:
+            stop = "The page did not change after Next: look for an error message on it."
+            break
+    if not uploaded:
         notes.append(f"Could not find the resume upload: upload {target.pdf} yourself.")
-    filled = fill_page(page, plan(fields, values, rules, target.description), timeout)
-    after = read_fields(page)
-    missing = missing_required(after)
     if not any(f["type"] not in ("file", "password") and f["visible"] for f in after):
         notes.append("No application form on this page: open the application yourself.")
-    if missing:
-        notes.append(f"Required and still empty: {', '.join(missing)}")
-    _banner(page, f"JobApplier filled {filled} fields. Check every section, then submit yourself.", notes)
-    return {"filled": filled, "missing": missing, "login": False}
+    notes.append(stop if missing else f"Stopped on page {number}: {stop}")
+    head = f"JobApplier filled {filled} fields. Check every section, then submit yourself."
+    _banner(page, head, notes)
+    return {"filled": filled, "missing": missing, "login": False, "pages": number}

@@ -28,7 +28,8 @@ def _opened_line(t, r: dict) -> str:
     if r["login"]:
         how = "sign in yourself"
     else:
-        how = f"filled {r['filled']} fields" + (
+        pages = f" over {r['pages']} pages" if r["pages"] > 1 else ""
+        how = f"filled {r['filled']} fields{pages}" + (
             f", {len(r['missing'])} required still empty" if r["missing"] else ""
         )
     return f"opened {t.job_id} ({t.company}) {t.url}: {how}"

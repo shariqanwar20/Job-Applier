@@ -158,7 +158,7 @@ def test_a_tab_that_fails_to_load_is_reported_and_the_rest_still_open(home, monk
         calls.append(target.job_id)
         if target.job_id == "J1":
             raise RuntimeError("net::ERR_NAME_NOT_RESOLVED")
-        return {"filled": 0, "missing": [], "login": True}
+        return {"filled": 0, "missing": [], "login": True, "pages": 1}
 
     monkeypatch.setattr(pipeline, "prepare", prepare)
     _, _, asked, said = run(home, ["", "n", "n"])
@@ -184,3 +184,13 @@ def test_end_of_input_counts_as_no(home):
 
 def test_the_pipeline_uses_the_real_prepare():
     assert pipeline.prepare is browser.prepare
+
+
+def test_the_opened_line_counts_pages(home, monkeypatch):
+    monkeypatch.setattr(
+        pipeline, "prepare", lambda *a: {"filled": 7, "missing": [], "login": False, "pages": 3}
+    )
+    _, _, _, said = run(home, ["", "n", "n"])
+    assert any(
+        line.startswith("opened J1 (PRI)") and line.endswith("filled 7 fields over 3 pages") for line in said
+    )
