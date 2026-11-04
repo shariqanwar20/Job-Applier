@@ -62,6 +62,7 @@ tailor:  # a one-page resume per approved row, from resume/master.tex; see READM
   tectonic: /opt/homebrew/bin/tectonic
   max_drops: 8                   # optional lines dropped, at most, to fit one page
   max_words: 25                  # per resume line
+  max_omit: 3                    # optional lines the model may leave out; the master already fits one page
   max_description_chars: 12000   # of the job description sent to the model
   # A capitalized or technology word (Go, Node.js, C++) the model adds must be in the master line it rewords,
   # or in this list (case-insensitive). These are the usual first words of a resume line.

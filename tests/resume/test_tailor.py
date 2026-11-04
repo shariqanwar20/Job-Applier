@@ -29,7 +29,7 @@ def test_prompt_names_the_skills_job_and_master_lines(config):
     for part in (
         "humanizer",
         "asd-ste100",
-        "one page",
+        "at most 3 lines",
         "Backend Developer",
         "Acme",
         "We use Go and PostgreSQL.",

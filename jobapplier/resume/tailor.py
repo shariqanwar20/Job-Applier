@@ -43,8 +43,10 @@ Return the lines to print, section by section, in the order to print them. Each 
 - {{"new": TEXT, "source": ID}} to add a line that comes from exactly one master line.
 
 Rules:
-- The resume must fit on one page. Leave out optional lines that do not help with this job.
+- Keep every line unless it plainly does not help with this job. Leave out at most {max_omit} lines in total.
 - Always keep the lines marked (required).
+- Within each job or project, put the lines that matter most for this job first.
+- Reword a line to use the job's terms where the master line supports them. Keep its facts and numbers.
 - Never invent facts. Every number, technology, employer and job title must be in the master line.
 - Use the job description's terms only where the master line supports them.
 - Write plain text: no LaTeX, no backslashes or braces, no dashes as punctuation.
@@ -62,7 +64,7 @@ def _prompt(items: list[Item], job: dict, cfg: dict) -> str:
             lines.append(f"\n## {section}")
         lines.append(f"- {i.id}{' (required)' if i.required else ''}: {plain(i.text)}")
     return (
-        _RULES.format(max_words=t["max_words"], banned=", ".join(t["banned_phrases"]))
+        _RULES.format(max_words=t["max_words"], max_omit=t["max_omit"], banned=", ".join(t["banned_phrases"]))
         + f"\nJob: {job['title']} at {job['company']}\n\nJob description:\n"
         + job["description"][: t["max_description_chars"]]
         + "\n\nMaster resume lines (id: text):"
