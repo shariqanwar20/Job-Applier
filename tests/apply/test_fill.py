@@ -1,3 +1,4 @@
+import ast
 import re
 
 import pytest
@@ -7,6 +8,7 @@ from jobapplier.apply.fill import (
     group_radios,
     is_login,
     missing_required,
+    next_button,
     plan,
     resume_input,
     salary_range,
@@ -217,11 +219,16 @@ def test_login_pages_are_found_by_password_field_url_or_title(rules):
     assert not is_login("https://jobs.lever.co/acme/1/apply", "Acme - Software Engineer", [field()], words)
 
 
-@pytest.mark.parametrize("module", ["fill.py", "browser.py"])
-def test_the_filler_never_clicks_submits_presses_keys_or_types_passwords(module):
-    src = (ROOT / "jobapplier" / "apply" / module).read_text()
+APPLY_CODE = [
+    *sorted((ROOT / "jobapplier" / "apply").glob("*.py")),
+    ROOT / "jobapplier" / "pipelines" / "apply.py",
+]
+
+
+@pytest.mark.parametrize("path", APPLY_CODE, ids=lambda p: p.name)
+def test_the_apply_code_never_submits_presses_keys_or_types_passwords(path):
+    src = path.read_text()
     forbidden = [
-        r"\.click\(",
         r"\.dblclick\(",
         r"\.tap\(",
         r"\.press\(",
@@ -238,6 +245,20 @@ def test_the_filler_never_clicks_submits_presses_keys_or_types_passwords(module)
     assert [p for p in forbidden if re.search(p, src)] == []
     called = set(re.findall(r"\.(fill|select_option|check|set_input_files|uncheck)\(", src))
     assert called <= {"fill", "select_option", "check", "set_input_files"}
+
+
+def test_the_only_click_is_in_click_next():
+    clicks = []
+    for path in APPLY_CODE:
+        tree = ast.parse(path.read_text())
+        for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "click":
+                    clicks.append((path.name, fn.name))
+    assert clicks == [("browser.py", "_click_next")]
+    assert (
+        sum(len(re.findall(r"\.click\(", p.read_text())) for p in APPLY_CODE) == 1
+    )  # none outside a function
 
 
 CONSENT = "I agree to the privacy policy and certify that my answers are accurate"
@@ -263,3 +284,18 @@ def test_an_unticked_required_checkbox_is_missing():
     box = field("1", "I agree to the terms", type="checkbox", value="on", required=True)
     assert missing_required([box]) == ["I agree to the terms"]
     assert missing_required([{**box, "checked": True}]) == []
+
+
+def button(bid, name, visible=True):
+    return {"id": bid, "name": name, "visible": visible}
+
+
+def test_next_button_is_a_next_word_without_a_submit_word(rules):
+    assert next_button([button("1", "Back"), button("2", "Save and Continue")], rules) == ("2", "")
+    assert next_button([button("1", "Next", visible=False), button("2", "Next")], rules)[0] == "2"
+    bid, why = next_button([button("1", "Back"), button("2", "Submit application")], rules)
+    assert bid is None and "submit yourself" in why
+    assert next_button([button("1", "Continue and submit")], rules)[0] is None  # both lists: never
+    assert next_button([button("1", "Continue with Google")], rules)[0] is None  # a sign-in, not a step
+    bid, why = next_button([button("1", "Add another")], rules)
+    assert bid is None and "No Next button" in why

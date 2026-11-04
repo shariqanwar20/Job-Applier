@@ -14,11 +14,14 @@ from jobapplier.core.rules import norm
 
 __all__ = [
     "FieldRules",
+    "button_name",
     "fill_page",
     "group_radios",
     "is_login",
     "missing_required",
+    "next_button",
     "plan",
+    "read_buttons",
     "read_fields",
     "resume_input",
     "salary_range",
@@ -32,14 +35,20 @@ _RESUME = re.compile(r"\b(resume|cv)\b")
 _AMOUNT = r"\d[\d,]*(?:\.\d+)?\s?[kK]?"
 _SALARY = re.compile(rf"\$\s?{_AMOUNT}\s*(?:-|\u2013|\u2014|to)\s*\$?\s?{_AMOUNT}")  # an en or em dash too
 
-# Marks every field with data-jobapplier so it is filled through a locator, never by position.
-_READ = """() => {
+_SHOWN = """
   const shown = el => {
     if (!el) return false;
     const s = getComputedStyle(el), r = el.getBoundingClientRect();
     return s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity) > 0
       && r.width > 1 && r.height > 1;
   };
+"""
+_NAME = "el => (el.getAttribute('aria-label') || el.innerText || el.value || '').replace(/\\s+/g, ' ').trim()"
+# Marks every field with data-jobapplier so it is filled through a locator, never by position.
+_READ = (
+    "() => {"
+    + _SHOWN
+    + """
   const text = el => el ? (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim() : '';
   const own = el => {
     const parts = [...(el.labels || [])].map(text);
@@ -75,6 +84,25 @@ _READ = """() => {
   });
   return out;
 }"""
+)
+
+
+# Links are left out: following one leaves the form.
+_BUTTONS = (
+    "() => {"
+    + _SHOWN
+    + f"""
+  const name = {_NAME};
+  const out = [];
+  document.querySelectorAll('button, input[type=submit], input[type=button], [role=button]')
+    .forEach((el, i) => {{
+      if (el.tagName === 'A') return;
+      el.setAttribute('data-jobapplier-button', String(i));
+      out.push({{id: String(i), name: name(el), visible: shown(el)}});
+    }});
+  return out;
+}}"""
+)
 
 
 def _words(phrases: list[str]) -> re.Pattern:
@@ -90,6 +118,8 @@ class FieldRules:
     consent: re.Pattern
     opt_in: re.Pattern
     tick_opt_ins: bool
+    next_step: re.Pattern
+    submit: re.Pattern
 
     @classmethod
     def from_config(cls, apply_cfg: dict) -> "FieldRules":
@@ -104,7 +134,14 @@ class FieldRules:
             _words(apply_cfg["consent_words"]),
             _words(apply_cfg["opt_in_words"]),
             bool(apply_cfg["tick_opt_ins"]),
+            _words(apply_cfg["next_words"]),
+            _words(apply_cfg["submit_words"]),
         )
+
+    def is_next(self, name: str) -> bool:
+        """A next-step button: a next word, and no submit or sign-in word."""
+        n = norm(name)
+        return bool(self.next_step.search(n)) and not (self.submit.search(n) or self.login.search(n))
 
 
 def group_radios(raw: list[dict]) -> list[dict]:
@@ -229,6 +266,25 @@ def fill_page(page, actions: list[tuple], timeout_ms: float) -> int:
             continue
         done += 1
     return done
+
+
+def read_buttons(page) -> list[dict]:
+    return page.evaluate(_BUTTONS)
+
+
+def button_name(button) -> str:
+    """The name of the button a locator points at, read now."""
+    return button.evaluate(_NAME)
+
+
+def next_button(buttons: list[dict], rules: FieldRules) -> tuple[str | None, str]:
+    """(id of the visible next-step button, "") or (None, why the owner takes over here)."""
+    shown = [b for b in buttons if b["visible"] and norm(b["name"])]
+    if nxt := [b for b in shown if rules.is_next(b["name"])]:
+        return nxt[0]["id"], ""
+    if any(rules.submit.search(norm(b["name"])) for b in shown):
+        return None, "This is the last step: check every page, then submit yourself."
+    return None, "No Next button found: continue yourself."
 
 
 def resume_input(fields: list[dict]) -> str | None:

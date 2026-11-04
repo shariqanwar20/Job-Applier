@@ -9,6 +9,7 @@ from playwright.sync_api import sync_playwright
 
 from jobapplier.apply.fill import (
     FieldRules,
+    button_name,
     fill_page,
     is_login,
     missing_required,
@@ -18,7 +19,7 @@ from jobapplier.apply.fill import (
 )
 from jobapplier.apply.targets import Target
 
-__all__ = ["LOGIN_NOTE", "chrome", "prepare"]
+__all__ = ["LOGIN_NOTE", "ClickRefusedError", "chrome", "prepare"]
 
 LOGIN_NOTE = "Sign in or create the account yourself; JobApplier does not handle passwords."
 # Plain DOM, so it works on any page; clicking it removes it.
@@ -56,6 +57,19 @@ def chrome(profile_dir: Path) -> Iterator:
             yield context
         finally:
             context.close()
+
+
+class ClickRefusedError(Exception):
+    pass
+
+
+def _click_next(button, rules: FieldRules, timeout_ms: float) -> None:
+    """The only click in the apply code. The name is read again right before the click, so a button that
+    has turned into Submit (or a sign-in) is refused, never clicked."""
+    name = button_name(button)
+    if not rules.is_next(name):
+        raise ClickRefusedError(f"not a next-step button: {name!r}")
+    button.click(timeout=timeout_ms)
 
 
 def _banner(page, head: str, lines: list[str]) -> None:

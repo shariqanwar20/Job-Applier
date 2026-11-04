@@ -6,7 +6,7 @@ import pytest
 from playwright.sync_api import Error as PlaywrightError
 
 from jobapplier.apply import browser
-from jobapplier.apply.browser import chrome, prepare
+from jobapplier.apply.browser import ClickRefusedError, chrome, prepare
 from jobapplier.apply.fill import FieldRules
 from jobapplier.apply.targets import Target
 from tests.apply.test_fill import VALUES, field
@@ -142,3 +142,35 @@ def test_chrome_opens_the_installed_chrome_with_a_kept_profile(monkeypatch, tmp_
         }
     ]
     assert closed == [1] and Path(tmp_path / "profile").is_dir()
+
+
+class FakeButton:
+    def __init__(self, name):
+        self.name, self.clicks = name, []
+
+    def evaluate(self, script):
+        return self.name
+
+    def click(self, timeout):
+        self.clicks.append(self.name)
+
+
+@pytest.fixture
+def field_rules(config):
+    return FieldRules.from_config(config["apply"])
+
+
+@pytest.mark.parametrize(
+    "name", ["Submit application", "Continue and submit", "Continue with Google", "Back"]
+)
+def test_click_next_refuses_anything_but_a_next_button(name, field_rules):
+    b = FakeButton(name)
+    with pytest.raises(ClickRefusedError):
+        browser._click_next(b, field_rules, 1000)
+    assert b.clicks == []
+
+
+def test_click_next_clicks_a_next_button(field_rules):
+    b = FakeButton("Save and Continue")
+    browser._click_next(b, field_rules, 1000)
+    assert b.clicks == ["Save and Continue"]
