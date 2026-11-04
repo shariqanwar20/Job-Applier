@@ -146,9 +146,10 @@ def prune(conn, client: Client, rules, now: datetime) -> tuple[int, list[str]]:
     for cluster_id, page_id, reason in clusters.prunable(conn, rules):
         try:
             props = call(client.pages.retrieve, page_id=page_id)["properties"]
-            if (props["Decision"]["select"] or {}).get("name") == "New":
+            # A renamed or missing Decision means the owner has reworked the row: leave it alone.
+            if (props.get("Decision", {}).get("select") or {}).get("name") == "New":
                 flags = [
-                    f["name"] for f in props["Flags"]["multi_select"]
+                    f["name"] for f in props.get("Flags", {}).get("multi_select", [])
                 ]  # an update replaces the whole list
                 call(
                     client.pages.update,

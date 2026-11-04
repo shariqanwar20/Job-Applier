@@ -8,6 +8,7 @@ from jobapplier.core.clusters import (
     connect,
     mark_pushed,
     members,
+    prunable,
     pushable,
     summarize,
 )
@@ -163,6 +164,14 @@ def test_repost_on_makes_new_flagged_cluster(rules):
     conn, first, second = _repost_setup(rules, True)
     assert first != second
     assert summarize(members(conn, second), rules, True)["flags"] == ["Repost"]
+
+
+def test_prunable_never_calls_a_deliberate_repost_a_duplicate(rules):
+    conn, first, second = _repost_setup(rules, True)
+    assert first != second
+    for cluster_id in (first, second):
+        mark_pushed(conn, cluster_id, f"page-{cluster_id}", "https://x", None)
+    assert prunable(conn, rules) == []
 
 
 def test_no_location_cluster_is_not_pushable_until_a_located_row_joins(rules):

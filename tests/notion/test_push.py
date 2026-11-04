@@ -248,6 +248,23 @@ def test_prune_does_not_touch_a_page_the_owner_already_decided(rules, config):
     assert not any(name == "pages.update" for name, _ in n.calls)
 
 
+def test_prune_tolerates_a_missing_flags_property(rules, config):
+    conn, n = seed(rules), FakeNotion()
+    push(conn, n, "ds1", rules)
+    del n.rows["page-2"]["Flags"]
+    assert prune(conn, n, _rules_with(config, blocked_companies=["co2"]), NOW) == (1, [])
+    assert _decision(n, "page-2") == "Skip" and _flags(n, "page-2") == ["Filtered"]
+
+
+def test_prune_treats_a_missing_decision_as_decided_and_does_not_touch_the_page(rules, config):
+    conn, n = seed(rules), FakeNotion()
+    push(conn, n, "ds1", rules)
+    del n.rows["page-2"]["Decision"]
+    assert prune(conn, n, _rules_with(config, blocked_companies=["co2"]), NOW) == (0, [])
+    assert _pruned(conn) == {2: "kept: owner decided"}
+    assert not any(name == "pages.update" for name, _ in n.calls)
+
+
 def test_second_prune_makes_no_notion_calls(rules, config):
     conn, n = seed(rules), FakeNotion()
     push(conn, n, "ds1", rules)

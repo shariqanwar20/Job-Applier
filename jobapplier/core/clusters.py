@@ -152,9 +152,12 @@ def prunable(conn: sqlite3.Connection, rules: Rules) -> list[tuple[int, str, str
         if any(keep(m, rules) for m in ms):
             key = _cluster_key(ms[0].company, ms[0].title, rules)
             seen = datetime.fromisoformat(row["first_seen"])
-            near = any(k == key and abs(seen - t) <= timedelta(days=7) for k, t in survivors)
+            # A deliberate repost shares its original's key on purpose, so it is never a duplicate.
+            near = not row["repost"] and any(
+                k == key and abs(seen - t) <= timedelta(days=7) for k, t in survivors
+            )
             reason = "duplicate" if near else None
-            if not near:
+            if not near and not row["repost"]:
                 survivors.append((key, seen))
         if reason and previous is None:  # a row the owner already decided on was settled in an earlier run
             out.append((row["id"], row["notion_page_id"], reason))
