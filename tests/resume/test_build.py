@@ -109,3 +109,9 @@ def test_pdf_path_cuts_the_role_to_six_words_and_adds_the_job_id_on_a_collision(
 def test_pdf_path_needs_a_name(tmp_path):
     with pytest.raises(ValueError, match=r"profile\.name"):
         pdf_path(tmp_path, " ", "Acme", "Dev", "J1")
+
+
+def test_fit_passes_the_configured_tectonic_timeout(tmp_path, config):
+    fake = FakeTectonic()
+    fit(TEX, ITEMS, ALL, tmp_path / "r.pdf", {**config["tailor"], "tectonic_timeout": 42}, tmp_path, fake)
+    assert fake.calls[0][1]["timeout"] == 42

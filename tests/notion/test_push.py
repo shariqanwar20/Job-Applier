@@ -445,10 +445,10 @@ def test_attach_resume_uploads_the_pdf_and_sets_status_and_notes(tmp_path):
     assert props["Notes"]["rich_text"][0]["text"]["content"] == "exp1.b1: 30 is not in the master line"
 
 
-def test_attach_resume_without_notes_leaves_notes_alone(tmp_path):
+def test_attach_resume_without_notes_clears_old_notes(tmp_path):
     n = FakeNotion()
-    n.rows = {"p1": row("J1")}
+    n.rows = {"p1": {**row("J1"), "Notes": {"rich_text": [{"text": {"content": "old problem"}}]}}}
     pdf = tmp_path / "A_B.pdf"
     pdf.write_bytes(b"x")
     attach_resume(n, "p1", pdf, "Tailored", "")
-    assert "Notes" not in n.rows["p1"] and n.rows["p1"]["Status"] == sel("Tailored")
+    assert n.rows["p1"]["Notes"] == {"rich_text": []} and n.rows["p1"]["Status"] == sel("Tailored")

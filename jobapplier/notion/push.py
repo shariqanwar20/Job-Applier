@@ -242,7 +242,7 @@ def approved_rows(client: Client, ds_id: str, job_id: str | None = None) -> list
 
 
 def attach_resume(client: Client, page_id: str, pdf: Path, status: str, notes: str) -> None:
-    """Uploads pdf to the row's Resume property and sets Status, and Notes when there are notes."""
+    """Uploads pdf to the row's Resume property and sets Status and Notes."""
     up = call(
         client.file_uploads.create, mode="single_part", filename=pdf.name, content_type="application/pdf"
     )
@@ -254,7 +254,6 @@ def attach_resume(client: Client, page_id: str, pdf: Path, status: str, notes: s
     props = {
         "Resume": {"files": [{"type": "file_upload", "file_upload": {"id": up["id"]}, "name": pdf.name}]},
         "Status": {"select": {"name": status}},
+        "Notes": {"rich_text": _text(notes)},  # empty clears an earlier run's problems
     }
-    if notes:
-        props["Notes"] = {"rich_text": _text(notes)}
     call(client.pages.update, page_id=page_id, properties=props)

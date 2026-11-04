@@ -131,3 +131,7 @@ def test_inflected_inflating_verbs_are_caught(verb, t):
         f"Built and {verb.lower()} the REST API in Go", "Built the REST API in Go", t
     )
     assert problems and "overstates" in " ".join(problems)
+
+
+def test_escape_maps_characters_plain_latex_prints_wrongly():
+    assert escape("a<b>c|d") == r"a\textless{}b\textgreater{}c\textbar{}d"

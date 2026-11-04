@@ -60,6 +60,7 @@ tailor:  # a one-page resume per approved row, from resume/master.tex; see READM
   master: resume/master.tex
   output_dir: output             # the PDFs, First_Last_Company_Role.pdf
   tectonic: /opt/homebrew/bin/tectonic
+  tectonic_timeout: 300          # seconds per compile; the first run downloads packages
   max_drops: 8                   # optional lines dropped, at most, to fit one page
   max_words: 25                  # per resume line
   max_omit: 3                    # optional lines the model may leave out; the master already fits one page

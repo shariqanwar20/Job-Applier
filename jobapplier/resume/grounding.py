@@ -9,7 +9,14 @@ _NUMBER = re.compile(r"\d+(?:[.,]\d+)*%?")
 _TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9+#.]*")
 _TECH_MARK = re.compile(r"[A-Z0-9+#.]")
 _DASHES = ("\u2014", "\u2013", "--")  # em dash, en dash, and LaTeX's en dash
-_LATEX = {"&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#", "_": r"\_", "~": r"\textasciitilde{}"}
+_LATEX = {
+    **{ch: "\\" + ch for ch in "&%$#_"},
+    "~": r"\textasciitilde{}",
+    # In the default OT1 font encoding these print as other glyphs (¡ ¿ —).
+    "<": r"\textless{}",
+    ">": r"\textgreater{}",
+    "|": r"\textbar{}",
+}
 
 
 def _numbers(text: str) -> set[str]:

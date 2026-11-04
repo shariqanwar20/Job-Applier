@@ -65,7 +65,9 @@ def fit(
     """Builds out_pdf, dropping optional lines until it is one page. Returns problems (empty when it fits)."""
     by_id = {i.id: i for i in items}
     for drops in range(cfg["max_drops"] + 1):
-        pages = build(render(tex, by_id, plan), out_pdf, cfg["tectonic"], search_dir, runner)
+        pages = build(
+            render(tex, by_id, plan), out_pdf, cfg["tectonic"], search_dir, runner, cfg["tectonic_timeout"]
+        )
         if pages <= 1:
             return []
         smaller = _drop_one(plan, by_id) if drops < cfg["max_drops"] else None
