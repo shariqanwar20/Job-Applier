@@ -22,11 +22,11 @@ def _plist(repo: Path, uv: str) -> dict:
             "python",
             "-m",
             "jobapplier",
-            "discover",
+            "run",
         ],
         "WorkingDirectory": str(repo),
         "EnvironmentVariables": {"PATH": f"{Path(uv).parent}:/usr/bin:/bin"},
-        "StartInterval": 7200,
+        "StartInterval": 1800,  # launchd runs a missed interval once on wake
         "RunAtLoad": True,
         "StandardOutPath": log,
         "StandardErrorPath": log,

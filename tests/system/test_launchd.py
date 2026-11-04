@@ -23,7 +23,7 @@ def test_install_creates_dirs_writes_plist_then_bootout_and_bootstrap(tmp_path, 
     assert path == tmp_path / "Library" / "LaunchAgents" / "local.jobapplier.plist"
     assert (repo / "logs").is_dir()
     d = plistlib.loads(path.read_bytes())  # awkward characters in the path survive the XML round trip
-    assert d["Label"] == "local.jobapplier" and d["StartInterval"] == 7200 and d["RunAtLoad"] is True
+    assert d["Label"] == "local.jobapplier" and d["StartInterval"] == 1800 and d["RunAtLoad"] is True
     assert d["ProgramArguments"] == [
         "/usr/bin/caffeinate",
         "-i",
@@ -34,7 +34,7 @@ def test_install_creates_dirs_writes_plist_then_bootout_and_bootstrap(tmp_path, 
         "python",
         "-m",
         "jobapplier",
-        "discover",
+        "run",
     ]
     assert d["WorkingDirectory"] == str(repo)
     assert d["EnvironmentVariables"] == {"PATH": "/Users/me/.local/bin:/usr/bin:/bin"}

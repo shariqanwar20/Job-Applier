@@ -304,3 +304,20 @@ def test_tailor_returns_zero_when_locked(home, monkeypatch):
     with locked(str(root / "data" / "run.lock")):
         assert app.main(["tailor"]) == 0
     assert notes == []
+
+
+def test_run_discovers_only_when_the_last_discover_is_old_then_tailors(monkeypatch, tmp_path):
+    import os
+
+    from jobapplier import __main__ as m
+
+    calls = []
+    monkeypatch.setattr(m, "_ROOT", tmp_path)
+    monkeypatch.setattr(m, "load_config", lambda root: {"schedule": {"discover_every_minutes": 120}})
+    monkeypatch.setattr(m, "_discover", lambda: calls.append("discover") or 0)
+    monkeypatch.setattr(m, "_tailor", lambda job: calls.append("tailor") or 0)
+    assert m._run() == 0 and calls == ["discover", "tailor"]
+    assert m._run() == 0 and calls == ["discover", "tailor", "tailor"]  # discovered just now
+    stamp = tmp_path / "data" / "last_discover"
+    os.utime(stamp, (stamp.stat().st_mtime - 3 * 3600,) * 2)
+    assert m._run() == 0 and calls[-2:] == ["discover", "tailor"]

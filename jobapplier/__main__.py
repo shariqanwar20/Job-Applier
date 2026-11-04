@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -44,7 +45,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     setup.add_argument("parent_page_id")
     commands.add_parser("mail-login", help="sign in to Gmail (read-only) once in the browser")
-    commands.add_parser("install-agent", help="run discover every two hours via a launchd LaunchAgent")
+    commands.add_parser(
+        "run", help="the scheduled step: discover when the last one is old enough, then tailor approved rows"
+    )
+    commands.add_parser("install-agent", help="run `run` every 30 minutes via a launchd LaunchAgent")
     commands.add_parser("uninstall-agent", help="remove the LaunchAgent")
     args = parser.parse_args(argv)
 
@@ -64,7 +68,22 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "tailor":
         return _tailor(args.job)
+    if args.command == "run":
+        return _run()
     return _discover()
+
+
+def _run() -> int:
+    """Discover at most every schedule.discover_every_minutes, then tailor approved rows."""
+    stamp = _ROOT / "data" / "last_discover"
+    every = load_config(_ROOT)["schedule"]["discover_every_minutes"] * 60
+    code = 0
+    if not stamp.exists() or time.time() - stamp.stat().st_mtime >= every:
+        code = _discover()
+        if code == 0:
+            stamp.parent.mkdir(exist_ok=True)
+            stamp.touch()
+    return _tailor(None) or code
 
 
 def _install_agent() -> int:
@@ -73,7 +92,9 @@ def _install_agent() -> int:
         print("uv not found on PATH; install it first: https://docs.astral.sh/uv/")
         return 1
     try:
-        print(f"Installed {launchd.install(_ROOT, uv)}; discover runs now and every two hours.")
+        print(
+            f"Installed {launchd.install(_ROOT, uv)}; it runs now and every 30 minutes (logs/jobapplier.log)."
+        )
     except subprocess.CalledProcessError as exc:
         print(f"launchctl failed: {exc}")
         return 1
