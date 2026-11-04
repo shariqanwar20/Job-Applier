@@ -107,6 +107,8 @@ class FakePage:
             return self.screen["buttons"]
         reads = self.screen["reads"]
         got = reads.pop(0) if len(reads) > 1 else reads[0]
+        if isinstance(got, Exception):
+            raise got
         self.types |= {f["id"]: f["type"] for f in got}
         return got
 
@@ -337,3 +339,12 @@ def test_the_upload_note_tells_not_found_from_failed(setup):
     page = FakePage([[field("1", "Email")]])
     prepare(page, target, VALUES, cfg, rules)
     assert any(line.startswith("No resume upload field found") for line in page.banners[0][1])
+
+
+def test_a_page_that_breaks_mid_walk_gets_a_stop_banner(setup):
+    target, cfg, rules = setup
+    broken = {"reads": [PlaywrightError("Execution context was destroyed")], "buttons": []}
+    page = FakePage(screens=[THREE_PAGES[0], broken])
+    result = prepare(page, target, VALUES, cfg, rules)
+    assert page.clicks == ["Next"] and result["pages"] == 1
+    assert "JobApplier stopped: Error; continue by hand." in page.banners[-1][1][-1]

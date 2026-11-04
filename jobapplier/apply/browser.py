@@ -112,41 +112,45 @@ def prepare(page, target: Target, values: dict, cfg: dict, rules: FieldRules) ->
     page.goto(target.url, wait_until="domcontentloaded", timeout=a["load_timeout_seconds"] * 1000)
     _settle(page, a["load_timeout_seconds"])
     filled, uploaded, upload_error, notes = 0, False, None, []
-    for number in range(1, a["max_pages"] + 1):
-        fields = read_fields(page)
-        if is_login(page.url, page.title(), fields, rules):
-            _banner(page, LOGIN_NOTE, [])
-            return {"filled": filled, "missing": [], "login": True, "pages": number}
-        upload = None if uploaded else resume_input(fields)
-        # Upload first: a resume parser overwrites fields filled before it runs.
-        if upload:
-            upload_error = upload_file(page, upload, str(target.pdf), timeout)
-            uploaded = upload_error is None
-        if uploaded and upload:
-            notes.append(f"Uploaded {target.pdf.name}.")
-            page.wait_for_timeout(a["parser_wait_seconds"] * 1000)
+    after, missing, stop, number = [], [], "", 1
+    try:
+        for number in range(1, a["max_pages"] + 1):
             fields = read_fields(page)
-        filled += fill_page(page, plan(fields, values, rules, target.description), timeout)
-        after, buttons = read_fields(page), read_buttons(page)
-        missing = missing_required(after)
-        button, stop = next_button(buttons, rules)
-        if missing:
-            stop = f"Required and still empty: {', '.join(missing)}"
-        elif number == a["max_pages"] and button:
-            stop = f"Stopped after apply.max_pages ({number}) pages: continue yourself."
-        if stop:
-            break
-        before = _signature(page, after, buttons)
-        try:
-            _click_next(page, button, rules, timeout)
-        except ClickRefusedError as exc:
-            stop = f"{exc}; continue yourself."
-            break
-        _settle(page, a["load_timeout_seconds"])
-        page.wait_for_timeout(a["next_wait_seconds"] * 1000)
-        if _signature(page, read_fields(page), read_buttons(page)) == before:
-            stop = "The page did not change after Next: look for an error message on it."
-            break
+            if is_login(page.url, page.title(), fields, rules):
+                _banner(page, LOGIN_NOTE, [])
+                return {"filled": filled, "missing": [], "login": True, "pages": number}
+            upload = None if uploaded else resume_input(fields)
+            # Upload first: a resume parser overwrites fields filled before it runs.
+            if upload:
+                upload_error = upload_file(page, upload, str(target.pdf), timeout)
+                uploaded = upload_error is None
+            if uploaded and upload:
+                notes.append(f"Uploaded {target.pdf.name}.")
+                page.wait_for_timeout(a["parser_wait_seconds"] * 1000)
+                fields = read_fields(page)
+            filled += fill_page(page, plan(fields, values, rules, target.description), timeout)
+            after, buttons = read_fields(page), read_buttons(page)
+            missing = missing_required(after)
+            button, stop = next_button(buttons, rules)
+            if missing:
+                stop = f"Required and still empty: {', '.join(missing)}"
+            elif number == a["max_pages"] and button:
+                stop = f"Stopped after apply.max_pages ({number}) pages: continue yourself."
+            if stop:
+                break
+            before = _signature(page, after, buttons)
+            try:
+                _click_next(page, button, rules, timeout)
+            except ClickRefusedError as exc:
+                stop = f"{exc}; continue yourself."
+                break
+            _settle(page, a["load_timeout_seconds"])
+            page.wait_for_timeout(a["next_wait_seconds"] * 1000)
+            if _signature(page, read_fields(page), read_buttons(page)) == before:
+                stop = "The page did not change after Next: look for an error message on it."
+                break
+    except PlaywrightError as exc:  # the page navigated, closed or redrew under the walk
+        stop = f"JobApplier stopped: {type(exc).__name__}; continue by hand."
     if upload_error:
         notes.append(f"Resume upload failed ({upload_error}): upload {target.pdf} yourself.")
     elif not uploaded:
@@ -155,5 +159,6 @@ def prepare(page, target: Target, values: dict, cfg: dict, rules: FieldRules) ->
         notes.append("No application form on this page: open the application yourself.")
     notes.append(stop if missing else f"Stopped on page {number}: {stop}")
     head = f"JobApplier filled {filled} fields. Check every section, then submit yourself."
-    _banner(page, head, notes)
+    with suppress(PlaywrightError):  # a page that broke may not take a banner either; the terminal says it
+        _banner(page, head, notes)
     return {"filled": filled, "missing": missing, "login": False, "pages": number}
