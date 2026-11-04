@@ -1,8 +1,8 @@
 """Pre-fills an application form from profile.yaml. It never submits: see the module test.
 
 The logic works on plain field dicts (read_fields builds them from the page), so it is tested without a
-browser. On the page it only calls fill, select_option, check (radios and consent boxes) and
-set_input_files.
+browser. On the page it only calls fill, select_option, check (radios and consent boxes the plan chose)
+and set_input_files (the resume).
 """
 
 import re
@@ -25,10 +25,13 @@ __all__ = [
     "read_fields",
     "resume_input",
     "salary_range",
+    "upload_file",
 ]
 
 _OWNED = frozenset({"name.first", "name.last", "name.full", "email", "phone"})  # must equal the profile
 _TEXT = frozenset({"text", "textarea", "email", "tel", "url", "number", "date"})
+_TICKS = {"check_radio": "radio", "tick_consent": "checkbox"}  # plan action -> the only type it may tick
+_ACTIONS = frozenset({"fill", "select_option", *_TICKS})
 _HONEYPOT = re.compile(r"^hp[_-]|honeypot", re.IGNORECASE)
 _PLACEHOLDER = re.compile(r"^(select|choose|please|none selected)\b|^$")
 _RESUME = re.compile(r"\b(resume|cv)\b")
@@ -265,7 +268,7 @@ def plan(fields: list[dict], values: dict, rules: FieldRules, description: str) 
             # an opt-in wins over consent words: "I agree to receive marketing emails" stays unticked
             opt_in = bool(rules.opt_in.search(text))
             if not f["checked"] and (rules.tick_opt_ins if opt_in else rules.consent.search(text)):
-                actions.append(("check", f["id"], "", _display(f)))
+                actions.append(("tick_consent", f["id"], "", _display(f)))
             continue
         own = norm(_label(f))
         keys = next(
@@ -281,7 +284,7 @@ def plan(fields: list[dict], values: dict, rules: FieldRules, description: str) 
             label = _choose([c["label"] for c in f["choices"]], value, rules)
             ids = [c["id"] for c in f["choices"] if c["label"] == label]
             if ids:
-                actions.append(("check", ids[0], label, _display(f)))
+                actions.append(("check_radio", ids[0], label, _display(f)))
         elif f["type"] == "select":
             if option := _choose(f["options"], value, rules):
                 actions.append(("select_option", f["id"], option, _display(f)))
@@ -291,24 +294,36 @@ def plan(fields: list[dict], values: dict, rules: FieldRules, description: str) 
 
 
 def fill_page(page, actions: list[tuple], timeout_ms: float) -> int:
-    """Does each action through the field's locator; returns how many worked. A failure leaves the field
-    to the owner."""
+    """Does each planned action through the field's locator; returns how many worked. A failure leaves the
+    field to the owner. Anything but a planned action is refused."""
     done = 0
     for method, fid, arg, _ in actions:
+        if method not in _ACTIONS:
+            raise ValueError(f"not a planned fill action: {method}")
         el = page.locator(f'[data-jobapplier="{fid}"]')
         try:
-            if method == "check":
+            if method in _TICKS:
+                # The type is read again now: the page may have redrawn since the plan was made.
+                if el.evaluate("el => el.type") != _TICKS[method]:
+                    continue
                 el.check(timeout=timeout_ms)
             elif method == "select_option":
                 el.select_option(label=arg, timeout=timeout_ms)
-            elif method == "set_input_files":
-                el.set_input_files(arg, timeout=timeout_ms)
             else:
                 el.fill(arg, timeout=timeout_ms)
         except PlaywrightError:
             continue
         done += 1
     return done
+
+
+def upload_file(page, fid: str, path: str, timeout_ms: float) -> str | None:
+    """Puts the file in the file input; None when it worked, else the error's type."""
+    try:
+        page.locator(f'[data-jobapplier="{fid}"]').set_input_files(path, timeout=timeout_ms)
+    except PlaywrightError as exc:
+        return type(exc).__name__
+    return None
 
 
 def read_buttons(page) -> list[dict]:

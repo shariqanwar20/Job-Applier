@@ -16,6 +16,9 @@ class FakeLocator:
     def __init__(self, page, fid):
         self.page, self.fid = page, fid
 
+    def evaluate(self, script):
+        return self.page.types.get(self.fid, "text")  # the element's type, read at fill time
+
     def _do(self, method, arg):
         if self.fid in self.page.broken:
             raise PlaywrightError("element is not visible")
@@ -62,6 +65,7 @@ class FakePage:
         self._title, self.idle, self.broken, self.stuck = title, idle, set(broken), stuck
         self.url, self.done, self.banners, self.waits, self.clicks, self.at = "", [], [], [], [], 0
         self.renamed = {}  # button id -> the name it has by the time it would be clicked
+        self.types = {}  # field id -> its type on the page, as the last read saw it
 
     @property
     def screen(self):
@@ -87,7 +91,9 @@ class FakePage:
         if "data-jobapplier-button" in script:
             return self.screen["buttons"]
         reads = self.screen["reads"]
-        return reads.pop(0) if len(reads) > 1 else reads[0]
+        got = reads.pop(0) if len(reads) > 1 else reads[0]
+        self.types |= {f["id"]: f["type"] for f in got}
+        return got
 
     def locator(self, selector):
         bid = selector.split('"')[1]
@@ -136,7 +142,7 @@ def test_a_slow_page_a_failing_field_and_no_upload_field_still_get_a_banner(setu
     result = prepare(page, target, VALUES, cfg, rules)
     assert result["filled"] == 1 and page.waits == []
     [(_, lines)] = page.banners
-    assert any("upload" in line and "yourself" in line for line in lines)
+    assert any(line.startswith("No resume upload field found") for line in lines)
 
 
 def test_a_page_without_a_form_says_so(setup):
@@ -286,3 +292,26 @@ def test_a_next_button_that_turned_into_submit_is_not_clicked(setup):
     result = prepare(page, target, VALUES, cfg, rules)
     assert page.clicks == [] and result["pages"] == 1
     assert any("not a next-step button" in line for line in page.banners[0][1])
+
+
+def test_fill_page_does_only_planned_actions_and_checks_only_the_planned_kind():
+    from jobapplier.apply.fill import fill_page
+
+    page = FakePage([[field("1", "Yes", type="radio"), field("2", "Agree", type="text")]])
+    page.evaluate("read")
+    with pytest.raises(ValueError, match="check"):
+        fill_page(page, [("check", "1", "", "q")], 1000)
+    with pytest.raises(ValueError, match="set_input_files"):
+        fill_page(page, [("set_input_files", "1", "/x.pdf", "q")], 1000)
+    assert fill_page(page, [("check_radio", "1", "Yes", "q"), ("tick_consent", "2", "", "Agree")], 1000) == 1
+    assert page.done == [("check", "1", None)]  # field 2 is no longer a checkbox: not ticked
+
+
+def test_the_upload_note_tells_not_found_from_failed(setup):
+    target, cfg, rules = setup
+    page = FakePage([[field("0", "Resume/CV", type="file"), field("1", "Email")]], broken={"0"})
+    prepare(page, target, VALUES, cfg, rules)
+    assert any(line.startswith("Resume upload failed (Error)") for line in page.banners[0][1])
+    page = FakePage([[field("1", "Email")]])
+    prepare(page, target, VALUES, cfg, rules)
+    assert any(line.startswith("No resume upload field found") for line in page.banners[0][1])

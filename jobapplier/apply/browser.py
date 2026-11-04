@@ -18,6 +18,7 @@ from jobapplier.apply.fill import (
     read_buttons,
     read_fields,
     resume_input,
+    upload_file,
 )
 from jobapplier.apply.targets import Target
 
@@ -98,7 +99,7 @@ def prepare(page, target: Target, values: dict, cfg: dict, rules: FieldRules) ->
     timeout = a["field_timeout_seconds"] * 1000
     page.goto(target.url, wait_until="domcontentloaded", timeout=a["load_timeout_seconds"] * 1000)
     _settle(page, a["load_timeout_seconds"])
-    filled, uploaded, notes = 0, False, []
+    filled, uploaded, upload_error, notes = 0, False, None, []
     for number in range(1, a["max_pages"] + 1):
         fields = read_fields(page)
         if is_login(page.url, page.title(), fields, rules):
@@ -106,8 +107,10 @@ def prepare(page, target: Target, values: dict, cfg: dict, rules: FieldRules) ->
             return {"filled": filled, "missing": [], "login": True, "pages": number}
         upload = None if uploaded else resume_input(fields)
         # Upload first: a resume parser overwrites fields filled before it runs.
-        if upload and fill_page(page, [("set_input_files", upload, str(target.pdf), "resume")], timeout):
-            uploaded = True
+        if upload:
+            upload_error = upload_file(page, upload, str(target.pdf), timeout)
+            uploaded = upload_error is None
+        if uploaded and upload:
             notes.append(f"Uploaded {target.pdf.name}.")
             page.wait_for_timeout(a["parser_wait_seconds"] * 1000)
             fields = read_fields(page)
@@ -132,8 +135,10 @@ def prepare(page, target: Target, values: dict, cfg: dict, rules: FieldRules) ->
         if _signature(page, read_fields(page), read_buttons(page)) == before:
             stop = "The page did not change after Next: look for an error message on it."
             break
-    if not uploaded:
-        notes.append(f"Could not find the resume upload: upload {target.pdf} yourself.")
+    if upload_error:
+        notes.append(f"Resume upload failed ({upload_error}): upload {target.pdf} yourself.")
+    elif not uploaded:
+        notes.append(f"No resume upload field found: upload {target.pdf} yourself.")
     if not any(f["type"] not in ("file", "password") and f["visible"] for f in after):
         notes.append("No application form on this page: open the application yourself.")
     notes.append(stop if missing else f"Stopped on page {number}: {stop}")

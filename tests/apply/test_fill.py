@@ -150,7 +150,9 @@ def test_demographic_questions_take_the_decline_option_or_stay_empty(rules):
             field("9", "I prefer not to answer", type="radio", name="dis", group="Do you have a disability?"),
         ]
     )
-    assert plan(radios, VALUES, rules, "") == [("check", "9", "I prefer not to answer", radios[0]["label"])]
+    assert plan(radios, VALUES, rules, "") == [
+        ("check_radio", "9", "I prefer not to answer", radios[0]["label"])
+    ]
 
 
 def test_yes_no_selects_and_radios_choose_the_matching_option(rules):
@@ -167,7 +169,7 @@ def test_yes_no_selects_and_radios_choose_the_matching_option(rules):
             field("2", "No", type="radio", name="s", group=q),
         ]
     )
-    assert [a[:2] for a in plan(radios, VALUES, rules, "")] == [("check", "2")]
+    assert [a[:2] for a in plan(radios, VALUES, rules, "")] == [("check_radio", "2")]
     country = field(label="Country", type="select", options=["United States", "Canada (+1)"])
     assert one(country, rules) == [("select_option", "Canada (+1)")]
     assert one(field(label="Province", type="select", options=["Quebec", "Alberta"]), rules) == []
@@ -257,8 +259,11 @@ def test_the_apply_code_never_submits_presses_keys_or_types_passwords(path):
         r"dispatch_?[eE]vent",
         r"set_checked",
         r"\.focus\(",
+        r"getattr\(",  # a method picked by name could be any of these
+        r"__getattribute__",
+        r"\beval\(",
     ]
-    assert [p for p in forbidden if re.search(p, src)] == []
+    assert [p for p in forbidden if re.search(p, src, re.I)] == []
     called = set(re.findall(r"\.(fill|select_option|check|set_input_files|uncheck)\(", src))
     assert called <= {"fill", "select_option", "check", "set_input_files"}
 
@@ -290,10 +295,10 @@ def test_consent_boxes_are_ticked_and_opt_ins_are_left_unless_configured(config)
         field("5", CONSENT, type="checkbox", value="on", visible=False),
     ]
     rules = FieldRules.from_config(config["apply"])
-    assert [a[:2] for a in plan(boxes, VALUES, rules, "")] == [("check", "1")]
+    assert [a[:2] for a in plan(boxes, VALUES, rules, "")] == [("tick_consent", "1")]
     config["apply"]["tick_opt_ins"] = True
     rules = FieldRules.from_config(config["apply"])
-    assert [a[:2] for a in plan(boxes, VALUES, rules, "")] == [("check", "1"), ("check", "2")]
+    assert [a[:2] for a in plan(boxes, VALUES, rules, "")] == [("tick_consent", "1"), ("tick_consent", "2")]
 
 
 def test_an_unticked_required_checkbox_is_missing():
@@ -351,7 +356,7 @@ def test_a_visible_field_and_a_radio_with_a_styled_label_are_filled(rules):
     fields = read_fields(ReadPage([field("1", "Website"), *radios]))
     assert [a[:3] for a in plan(fields, VALUES, rules, "")] == [
         ("fill", "1", "https://github.com/alex"),
-        ("check", "2", "Yes"),
+        ("check_radio", "2", "Yes"),
     ]
 
 
@@ -393,3 +398,21 @@ def test_the_text_before_a_field_is_looked_for_only_inside_its_form_or_fieldset(
     from jobapplier.apply import fill
 
     assert "el.closest('fieldset, form')" in fill._READ and "n !== box" in fill._READ
+
+
+def test_the_only_check_is_in_fill_page_for_a_planned_radio_or_consent_box():
+    checks = []
+    for path in APPLY_CODE:
+        for fn in [n for n in ast.walk(ast.parse(path.read_text())) if isinstance(n, ast.FunctionDef)]:
+            for node in ast.walk(fn):
+                called = (
+                    node.func.attr
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    else ""
+                )
+                if called in ("check", "set_input_files"):
+                    checks.append((path.name, fn.name, called))
+    assert sorted(checks) == [
+        ("fill.py", "fill_page", "check"),
+        ("fill.py", "upload_file", "set_input_files"),
+    ]
