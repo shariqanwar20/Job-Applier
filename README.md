@@ -125,7 +125,7 @@ To try one row, whatever its Decision: `uv run python -m jobapplier tailor --job
 
 ## Apply
 
-`apply` opens each ready row's application page in Chrome and pre-fills it. **It never clicks Submit, Apply or Next, never creates an account and never types a password.** You check the form and submit it.
+`apply` opens each ready row's application page in Chrome and pre-fills it, page by page. **It never clicks Submit or Apply, never creates an account and never types a password.** You check the form and submit it.
 
 1. Copy `profile.example.yaml` to `profile.yaml` (git-ignored) and put your answers in: name, email, phone, location, links, work authorization, start date, relocation, salary and `voluntary_self_id`.
 2. In Notion, approve a row. The PDF appears and Status becomes **Tailored** or **Needs review**.
@@ -140,7 +140,17 @@ To try one row, whatever its Decision: `uv run python -m jobapplier tailor --job
 
 Rows with Status Tailored or Reviewed open, at most `apply.max_tabs` (8) per run. The command prints what it opened and what it skipped, and why: a row whose only links are job boards (`rules.aggregator_hosts`; paste the employer's posting into the row's Link and run again), or a row with no PDF in `output/`. A Lever, Ashby, Breezy or SmartRecruiters job page is turned into its application page; a Greenhouse page holds the form already.
 
-In each tab it uploads the tailored PDF to the resume field first (a site's resume parser overwrites fields), waits `apply.parser_wait_seconds`, then fills the visible fields its rules know (`apply.fields`: each rule maps label words to a `profile.yaml` key, first match wins). It only fills an empty field, except name, email and phone, which it sets to your profile's. Demographic questions get the "prefer not to say" option when `voluntary_self_id` is `decline`. It leaves checkboxes (consent, marketing), hidden fields and honeypots alone. A note at the top of the page says how many fields it filled and which required fields are still empty; click the note to close it.
+In each tab it uploads the tailored PDF to the resume field first (a site's resume parser overwrites fields), waits `apply.parser_wait_seconds`, then fills the visible fields its rules know (`apply.fields`: each rule maps label words to a `profile.yaml` key, first match wins). It only fills an empty field, except name, email and phone, which it sets to your profile's. Demographic questions get the "prefer not to say" option when `voluntary_self_id` is `decline`. It ticks consent checkboxes (`apply.consent_words`: terms, privacy, "my answers are accurate"); a box with a marketing word (`apply.opt_in_words`: newsletter, SMS, job alerts) stays unticked even when it also says "agree", unless you set `apply.tick_opt_ins: true`. It leaves hidden fields and honeypots alone.
+
+Multi-page forms: after filling a page, it clicks the button named with a word from `apply.next_words` (Next, Continue, Save and Continue), waits `apply.next_wait_seconds`, and fills the next page, up to `apply.max_pages` (8). A button whose name also has a word from `apply.submit_words` (Submit, Apply, Send, Finish, Confirm, ...) or a sign-in word is never clicked; the name is read again right before each click. It stops and leaves the page to you when:
+
+- the page's button is a submit button (the last step);
+- a required field is still empty;
+- a sign-in or sign-up page appears;
+- there is no next button;
+- the page did not change after the click (usually a validation error on the page).
+
+A note at the top of the page where it stopped says how many fields it filled, why it stopped and which required fields are still empty; click the note to close it. Use the form's Back button to check the earlier pages.
 
 The scheduled `run` never opens a browser. When rows become ready, it sends one notification: "N applications ready: run `uv run python -m jobapplier apply`".
 
