@@ -83,7 +83,7 @@ tailor:  # a one-page resume per approved row, from resume/master.tex; see READM
 schedule:  # the LaunchAgent (install-agent) runs `python -m jobapplier run` every 30 minutes
   discover_every_minutes: 120   # discover only this often; tailoring runs on every tick
 
-apply:  # `apply` opens ready rows in Chrome and pre-fills the form; you check it and submit. See README "Applying"
+apply:  # `apply` opens ready rows in Chrome and pre-fills the form; you check it and submit. See README "Apply"
   max_tabs: 8                      # tabs opened per run; run apply again for the rest
   browser_profile: data/browser-profile  # Chrome profile kept between runs, so a sign-in you do by hand stays
   load_timeout_seconds: 30
