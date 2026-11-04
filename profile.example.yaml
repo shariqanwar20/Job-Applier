@@ -1,0 +1,25 @@
+# Copy to profile.yaml (git-ignored) and put your own answers in. `apply` fills forms from it.
+name:
+  first: Alex
+  last: Example
+email: alex@example.com
+phone: "+1 416 555 0100"
+location:
+  city: Toronto
+  province: Ontario
+  country: Canada
+links:
+  linkedin: https://www.linkedin.com/in/alex-example
+  github: https://github.com/alex-example
+  website: ""          # optional; a website or portfolio field falls back to github
+work_authorization:    # true/false; forms get Yes/No
+  canada: true
+  sponsorship_now: false
+  sponsorship_future: false
+start_date: Two weeks after an offer
+relocation:
+  willing: true
+  cities: [Vancouver, Montreal]
+salary_expectation: Open to discussing a fair range for the role   # for free-text salary questions
+salary_default: "85000"   # a salary field when the posting states no range
+voluntary_self_id: decline  # decline: pick "prefer not to say" in gender, race, veteran and disability questions
