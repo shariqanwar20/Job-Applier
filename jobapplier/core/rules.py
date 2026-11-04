@@ -8,7 +8,8 @@ __all__ = ["Rules", "is_intern", "is_notable", "keep", "norm", "words"]
 
 
 def norm(text: str) -> str:
-    text = unicodedata.normalize("NFKD", text)
+    # Format characters (zero-width space, soft hyphen) would otherwise split a word in two.
+    text = unicodedata.normalize("NFKD", "".join(c for c in text if unicodedata.category(c) != "Cf"))
     text = "".join(c for c in text if not unicodedata.combining(c))
     return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 

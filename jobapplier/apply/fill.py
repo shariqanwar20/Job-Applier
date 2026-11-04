@@ -6,6 +6,7 @@ and set_input_files (the resume).
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 from playwright.sync_api import Error as PlaywrightError
@@ -143,6 +144,12 @@ _BUTTONS = (
 )
 
 
+def _foreign(text: str) -> bool:
+    """Has a letter outside Latin after NFKD (Cyrillic \u0405 looks like S); accents are fine."""
+    text = unicodedata.normalize("NFKD", "".join(c for c in text if unicodedata.category(c) != "Cf"))
+    return any(c.isalpha() and not c.isascii() for c in text if not unicodedata.combining(c))
+
+
 def _raw(phrases: list[str]) -> str:
     """An alternation matching phrases in raw page text: "save & continue" also matches "Save & Continue"."""
     return "|".join(r"\W+".join(map(re.escape, norm(p).split())) for p in phrases if norm(p))
@@ -207,6 +214,8 @@ class FieldRules:
         """A next-step button: its visible text starts with a next phrase and has at most next_max_extra more
         words; no source of its name has a submit, sign-in or deny word."""
         names = [norm(button[k]) for k in _SOURCES]
+        if any(_foreign(button[k]) for k in _SOURCES):  # a look-alike letter could hide a submit word
+            return False
         if self.is_submit_button(button) or any(
             self.login.search(n) or self.sign_in_button.search(n) for n in names
         ):

@@ -537,7 +537,7 @@ SUBMIT_LIKE = [
     "Continue to completion",
     "Next - submitting",
     "Continue and finalize",
-    "Continue — final step",
+    "Continue \u2014 final step",
     "Continue & post",
     "Next: send application",
     "Apply",
@@ -591,3 +591,17 @@ def test_tick_opt_ins_ticks_every_box_with_a_consent_word(config):
         field("2", "Send me job alerts", type="checkbox", value="on"),
     ]
     assert [a[:2] for a in plan(boxes, VALUES, rules, "")] == [("tick_consent", "1")]
+
+
+@pytest.mark.parametrize("text", ["Sub\u200bmit", "Sub\u00admit application", "Continue to sub\u200bmission"])
+def test_a_hidden_character_does_not_split_a_submit_word(text, rules):
+    assert rules.is_submit_button(button("1", text)) and not rules.is_next(button("1", text))
+
+
+@pytest.mark.parametrize("names", [{"text": "N\u0435xt"}, {"text": "Next", "aria": "\u0405ubmit"}])
+def test_a_button_name_with_non_ascii_letters_is_refused(names, rules):
+    assert not rules.is_next(button("1", **names))  # Cyrillic e and S look like Latin ones
+
+
+def test_accented_latin_letters_are_fine(rules):
+    assert rules.is_next(button("1", "Continu\u00e9"))  # e with an accent: still Latin after NFKD
