@@ -33,6 +33,11 @@ def test_norm():
         ("Machinist Programmer", False),
         ("Junior Java Software Developer", True),
         ("Application Developer, Junior", True),
+        ("Job Developer", False),
+        ("CAD Programmer I", False),
+        ("Full Stack Developer Course Instructor", False),
+        ("Programmer Analyst C++", True),
+        ("Online Game Programmer", True),
     ],
 )
 def test_keep_by_title(title, ok, rules):
@@ -91,14 +96,26 @@ def test_blocked_company_type_is_dropped(rules):
 
 
 @pytest.mark.parametrize(
-    "company", ["Jobgether", "Turing", "Robert Half", "Randstad Canada Inc.", "S.I. Systems", "TEKsystems"]
+    "company",
+    [
+        "Jobgether",
+        "Turing",
+        "Robert Half",
+        "Randstad Canada Inc.",
+        "S.I. Systems",
+        "TEKsystems",
+        "Cornerbridge Talent Partners",
+        "TLNT Bridge Recruiting",
+        "Apex Systems",
+        "Confidential",
+    ],
 )
 def test_blocked_company_is_dropped(company, rules):
     assert not keep(Posting("linkedin", "1", "Software Developer", company, "Toronto", "u"), rules)
 
 
 def test_blocked_company_matches_whole_words_only(rules):
-    for company in ("Acme", "Turingly Labs", "Hayseed Software", "Predice"):
+    for company in ("Acme", "Turingly Labs", "Hayseed Software", "Predice", "Kaseya Careers"):
         assert keep(Posting("linkedin", "1", "Software Developer", company, "Toronto", "u"), rules)
 
 

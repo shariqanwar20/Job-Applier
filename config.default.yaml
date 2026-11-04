@@ -4,11 +4,11 @@ rules:
   # Whole words/phrases matched on the normalized title (lowercase, ASCII, punctuation -> space).
   include: [developer, engineer, programmer, software, full stack, fullstack, back end, backend, front end, frontend, sde, mobile, developpeur, developpeuse, ingenieur logiciel, ingenieure logiciel]
   # Seniority words that drop a title.
-  exclude: [senior, sr, staff, principal, lead, manager, director, architect, head of, cnc, welding, robot programmer, plc, machining, machinist]
+  exclude: [senior, sr, staff, principal, lead, manager, director, architect, head of, cnc, welding, robot programmer, plc, machining, machinist, job developer, community developer, recreation, elders, cad, instructor, teacher, power system]
   # Postings whose FreeHire company type is listed are dropped.
   blocked_company_types: [outstaff, agency]
   # Recruiting and staffing companies, dropped (whole words in the company name).
-  blocked_companies: [jobgether, turing, placements24, vhr professional services, techedin, smart it frame, sra group, epsilon solutions, artech, lancesoft, mitchell martin, hour consulting, planit search, tekrek, flexton, axelon, aptask, alltech consulting, s i systems, tech talent international, analyst technical, lighthouse technology, randstad, robert half, teksystems, insight global, adecco, hays, kforce, cybercoders, dice]
+  blocked_companies: [jobgether, turing, placements24, vhr professional services, techedin, smart it frame, sra group, epsilon solutions, artech, lancesoft, mitchell martin, hour consulting, planit search, tekrek, flexton, axelon, aptask, alltech consulting, s i systems, tech talent international, analyst technical, lighthouse technology, randstad, robert half, teksystems, insight global, adecco, hays, kforce, cybercoders, dice, apex systems, pacer group, gurulink, compunnel, pentasia, lorven technologies, ztek consulting, tekgence, centraprise, viva tech solutions, quantum world technologies, stellar software solutions, blutic, code17tek, digitalogia, isteer, envision technology solutions, techdoquest, grand software solutions, apptad, astra north infoteck, sportstechjobs, it connex, belmont lavan, enterprise solutions inc, confidential, same as legal business name, recruiting, recruitment, staffing, consultancy, talent]
   # Intern/co-op titles are kept only at a notable company.
   intern: [intern, internship, co op, coop, stagiaire, stage]
   # Title words that rank a posting 1 (new grad / junior).
