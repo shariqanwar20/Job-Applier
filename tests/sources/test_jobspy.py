@@ -31,6 +31,7 @@ CFG = {
     "country": "Canada",
     "results_wanted": 100,
     "delay_seconds": [4, 8],
+    "retry_after_429_seconds": 120,
 }
 
 
@@ -60,17 +61,47 @@ def test_record_nan_becomes_empty():
     assert p.url == "https://www.linkedin.com/jobs/view/4485119071"
 
 
-def test_linkedin_429_stops_remaining_terms():
-    calls = []
+def rate_limited(rec):
+    df = pd.DataFrame([rec])
+    df.attrs = {"errors": {"linkedin": "response status code 429 (blocked: use a proxy)"}}
+    return df
+
+
+def clean(rec):
+    df = pd.DataFrame([rec])
+    df.attrs = {}
+    return df
+
+
+def test_linkedin_429_then_success_retries_the_term_after_waiting():
+    slept, terms = [], []
+    answers = iter([rate_limited(LINKEDIN_NAN), clean(LINKEDIN_NAN), clean({**LINKEDIN_NAN, "id": "li-2"})])
 
     def scrape(**kw):
-        calls.append(kw)
-        df = pd.DataFrame([LINKEDIN_NAN])
-        df.attrs = {"errors": {"linkedin": "response status code 429 (blocked: use a proxy)"}}
-        return df
+        terms.append(kw["search_term"])
+        return next(answers)
 
-    rows, err = LinkedIn(CFG, 3, scrape=scrape, sleep=no_sleep).fetch()
-    assert len(calls) == 1 and len(rows) == 1 and err == "linkedin: 429"
+    rows, err = LinkedIn(CFG, 3, scrape=scrape, sleep=slept.append).fetch()
+    assert err is None and terms == ["a", "a", "b"]
+    assert [r.source_id for r in rows] == ["li-4485119071", "li-2"]  # the repeated row is not duplicated
+    assert slept[0] == 120 and len(slept) == 2 and 4 <= slept[1] <= 8
+
+
+def test_linkedin_429_twice_stops_remaining_terms_and_keeps_rows():
+    terms, slept = [], []
+
+    def scrape(**kw):
+        terms.append(kw["search_term"])
+        return rate_limited({**LINKEDIN_NAN, "id": f"li-{len(terms)}"})
+
+    rows, err = LinkedIn(CFG, 3, scrape=scrape, sleep=slept.append).fetch()
+    assert terms == ["a", "a"] and slept == [120] and err == "linkedin: 429"
+    assert [r.source_id for r in rows] == ["li-1", "li-2"]
+
+
+def test_linkedin_scrape_arguments():
+    calls = []
+    LinkedIn(CFG, 3, scrape=lambda **kw: calls.append(kw) or clean(LINKEDIN_NAN), sleep=no_sleep).fetch()
     assert calls[0]["linkedin_fetch_description"] is False and calls[0]["hours_old"] == 72
 
 
@@ -100,12 +131,25 @@ def test_other_error_is_reported_and_loop_continues():
     assert len(rows) == 1 and err == "indeed: timeout"  # last error wins
 
 
-def test_raised_429_stops_remaining_terms():
-    calls = []
+def test_raised_429_is_retried_once_then_stops_remaining_terms():
+    calls, slept = [], []
 
     def scrape(**kw):
         calls.append(kw)
         raise RuntimeError("HTTP 429 Too Many Requests")
 
-    rows, err = LinkedIn(CFG, 3, scrape=scrape, sleep=no_sleep).fetch()
-    assert len(calls) == 1 and rows == [] and err == "linkedin: 429"
+    rows, err = LinkedIn(CFG, 3, scrape=scrape, sleep=slept.append).fetch()
+    assert len(calls) == 2 and slept == [120] and rows == [] and err == "linkedin: 429"
+
+
+def test_raised_429_then_success_has_no_error():
+    answers = iter([RuntimeError("HTTP 429"), clean(INDEED), clean(INDEED)])
+
+    def scrape(**kw):
+        a = next(answers)
+        if isinstance(a, Exception):
+            raise a
+        return a
+
+    rows, err = Indeed(CFG, 3, scrape=scrape, sleep=no_sleep).fetch()
+    assert err is None and len(rows) == 2

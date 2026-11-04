@@ -36,33 +36,42 @@ class _JobSpySource(Source):
         """Site-specific scrape_jobs arguments."""
         return {}
 
+    def _scrape_term(self, term: str) -> tuple[dict[str, Posting], str | None]:
+        """One scrape: the postings by id, and the error message if it failed. Never raises."""
+        try:
+            df = self.scrape(
+                site_name=[self.name],
+                search_term=term,
+                location=self.cfg["location"],
+                results_wanted=self.cfg["results_wanted"],
+                hours_old=self.hours_old,
+                **self.extra(),
+            )
+        except Exception as e:
+            return {}, str(e)
+        rows = (_from_record(self.name, r) for r in df.to_dict("records"))
+        # JobSpy reports HTTP failures here instead of raising, and still returns the rows it got.
+        return {p.source_id: p for p in rows}, df.attrs.get("errors", {}).get(self.name)
+
     def fetch(self) -> tuple[list[Posting], str | None]:
-        """Never raises. A 429 stops the remaining terms; other failures are reported and the loop goes on."""
+        """Never raises. A 429 waits and retries the term once; a second 429 stops the remaining terms.
+
+        Other failures are reported and the loop goes on.
+        """
         site = self.name
         postings: list[Posting] = []
         error = None
         for i, term in enumerate(self.cfg["terms"]):
             if i:
                 self.sleep(random.uniform(*self.cfg["delay_seconds"]))
-            try:
-                df = self.scrape(
-                    site_name=[site],
-                    search_term=term,
-                    location=self.cfg["location"],
-                    results_wanted=self.cfg["results_wanted"],
-                    hours_old=self.hours_old,
-                    **self.extra(),
-                )
-            except Exception as e:
-                if "429" in str(e):
-                    return postings, f"{site}: 429"
-                error = f"{site}: {e}"
-                continue
-            postings += [_from_record(site, r) for r in df.to_dict("records")]
-            # JobSpy reports HTTP failures here instead of raising, and still returns the rows it got.
-            message = df.attrs.get("errors", {}).get(site)
+            rows, message = self._scrape_term(term)
             if message and "429" in message:
-                return postings, f"{site}: 429"
+                self.sleep(self.cfg["retry_after_429_seconds"])
+                retried, message = self._scrape_term(term)
+                rows |= retried  # a retry may repeat rows the first attempt got
+                if message and "429" in message:
+                    return [*postings, *rows.values()], f"{site}: 429"
+            postings += rows.values()
             if message:
                 error = f"{site}: {message}"
         return postings, error
