@@ -1,4 +1,4 @@
-"""The one entry point: `python -m jobapplier <discover | notion-setup | mail-login | ...>`; see --help."""
+"""The one entry point: `python -m jobapplier <discover | tailor | notion-setup | ...>`; see --help."""
 
 import argparse
 import logging
@@ -6,9 +6,12 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 
+from jobapplier import llm
 from jobapplier.config import load_config, load_env
 from jobapplier.core import clusters
 from jobapplier.core.rules import Rules
@@ -16,6 +19,7 @@ from jobapplier.mail.gmail import Gmail, MailError, sign_in
 from jobapplier.notion.client import NotionError, make_client
 from jobapplier.notion.push import create_database, style_database
 from jobapplier.pipelines.discover import run_discover
+from jobapplier.pipelines.tailor import run_tailor
 from jobapplier.sources import build_sources
 from jobapplier.system import launchd
 from jobapplier.system.lock import locked
@@ -34,12 +38,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m jobapplier")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("discover", help="fetch fresh jobs and add the new ones to Notion")
+    tailor = commands.add_parser("tailor", help="make a tailored resume PDF for each approved row")
+    tailor.add_argument("--job", help="tailor only this Job ID (e.g. J27), whatever its Decision")
     setup = commands.add_parser(
         "notion-setup", help="create the database under a Notion page and print the config snippet"
     )
     setup.add_argument("parent_page_id")
     commands.add_parser("mail-login", help="sign in to Gmail (read-only) once in the browser")
-    commands.add_parser("install-agent", help="run discover every two hours via a launchd LaunchAgent")
+    commands.add_parser(
+        "run", help="the scheduled step: discover when the last one is old enough, then tailor approved rows"
+    )
+    commands.add_parser("install-agent", help="run `run` every 30 minutes via a launchd LaunchAgent")
     commands.add_parser("uninstall-agent", help="remove the LaunchAgent")
     args = parser.parse_args(argv)
 
@@ -57,7 +66,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "uninstall-agent":
         launchd.uninstall()
         return 0
+    if args.command == "tailor":
+        return _tailor(args.job)
+    if args.command == "run":
+        return _run()
     return _discover()
+
+
+def _run() -> int:
+    """Discover at most every schedule.discover_every_minutes, then tailor approved rows."""
+    stamp = _ROOT / "data" / "last_discover"
+    every = load_config(_ROOT)["schedule"]["discover_every_minutes"] * 60
+    code = 0
+    if not stamp.exists() or time.time() - stamp.stat().st_mtime >= every:
+        code = _discover()
+        if code == 0:
+            stamp.parent.mkdir(exist_ok=True)
+            stamp.touch()
+    return _tailor(None) or code
 
 
 def _install_agent() -> int:
@@ -66,7 +92,9 @@ def _install_agent() -> int:
         print("uv not found on PATH; install it first: https://docs.astral.sh/uv/")
         return 1
     try:
-        print(f"Installed {launchd.install(_ROOT, uv)}; discover runs now and every two hours.")
+        print(
+            f"Installed {launchd.install(_ROOT, uv)}; it runs now and every 30 minutes (logs/jobapplier.log)."
+        )
     except subprocess.CalledProcessError as exc:
         print(f"launchctl failed: {exc}")
         return 1
@@ -108,19 +136,50 @@ def _notion_setup(parent_page_id: str) -> int:
     return 0
 
 
+def _notion_token(cfg: dict) -> str | None:
+    """The Notion token, or None after reporting what setup is missing."""
+    token = os.environ.get("NOTION_TOKEN")
+    if not (cfg["notion"]["data_source_id"] and cfg["notion"]["database_id"]):
+        problem = _NO_IDS
+    elif not token:
+        problem = _NO_TOKEN
+    else:
+        return token
+    _log.error(problem)
+    notify("JobApplier", problem)
+    return None
+
+
+def _tailor(job_id: str | None) -> int:
+    try:
+        cfg = load_config(_ROOT)
+        token = _notion_token(cfg)
+        if token is None:
+            return 1
+        (_ROOT / "data").mkdir(exist_ok=True)
+        with locked(str(_ROOT / "data" / "run.lock")) as got:
+            if not got:
+                _log.info("another run holds the lock; exiting")
+                return 0
+            conn = clusters.connect(str(_ROOT / "data" / "jobs.db"))
+            llm_run = partial(llm.run, claude=cfg["llm"]["claude"], timeout=cfg["llm"]["timeout_seconds"])
+            result = run_tailor(conn, cfg, make_client(token), llm_run, _ROOT, job_id)
+        _log.info("tailor done: %s", result)
+        if result["errors"]:
+            notify("JobApplier: tailor errors", "; ".join(result["errors"]))
+            return 1
+        return 0
+    except Exception as exc:
+        _log.exception("tailor failed")
+        notify("JobApplier: tailor crashed", str(exc))
+        return 1
+
+
 def _discover() -> int:
     try:
         cfg = load_config(_ROOT)
-        token = os.environ.get("NOTION_TOKEN")
-        if not (cfg["notion"]["data_source_id"] and cfg["notion"]["database_id"]):
-            problem = _NO_IDS
-        elif not token:
-            problem = _NO_TOKEN
-        else:
-            problem = None
-        if problem:
-            _log.error(problem)
-            notify("JobApplier", problem)
+        token = _notion_token(cfg)
+        if token is None:
             return 1
         (_ROOT / "data").mkdir(exist_ok=True)
         with locked(str(_ROOT / "data" / "run.lock")) as got:

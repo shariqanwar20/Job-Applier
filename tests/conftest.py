@@ -55,7 +55,8 @@ class FakeNotion:
     """In-memory stand-in for notion_client.Client with the methods we call.
 
     rows holds created pages by id; fail_on_create maps the Nth create attempt to the exception it raises;
-    fail_on_update maps a page id to the exception updating it raises.
+    fail_on_update maps a page id to the exception updating it raises. ds_properties is the data source's
+    schema, which data_sources.update adds to; uploads maps a file upload id to the file sent.
     """
 
     def __init__(self, fail_on_create=None, fail_on_update=None):
@@ -74,24 +75,44 @@ class FakeNotion:
         self.pages = SimpleNamespace(
             create=self._create_page, retrieve=self._retrieve_page, update=self._update_page
         )
+        self.ds_properties = {"Rank": {"id": "rank%3Aid", "type": "select"}}
+        self.uploads = {}
+        self.file_uploads = SimpleNamespace(create=self._create_upload, send=self._send_upload)
+
+    def _matches(self, props, f):
+        if "and" in f:
+            return all(self._matches(props, g) for g in f["and"])
+        if "or" in f:
+            return any(self._matches(props, g) for g in f["or"])
+        p = props.get(f["property"], {})
+        if "select" in f:
+            return (p.get("select") or {}).get("name") == f["select"]["equals"]
+        return "".join(t["text"]["content"] for t in p.get("rich_text", [])) == f["rich_text"]["equals"]
 
     def _query(self, data_source_id, **kw):
         self.calls.append(("data_sources.query", {"data_source_id": data_source_id, **kw}))
-        want = kw["filter"]["rich_text"]["equals"]
         hits = [
-            {"id": pid}
-            for pid, p in self.rows.items()
-            if p["Job ID"]["rich_text"][0]["text"]["content"] == want
+            {"id": pid, "properties": p} for pid, p in self.rows.items() if self._matches(p, kw["filter"])
         ]
-        return {"results": hits[: kw["page_size"]]}
+        return {"results": hits[: kw["page_size"]], "has_more": False, "next_cursor": None}
 
     def _update_data_source(self, data_source_id, **kw):
         self.calls.append(("data_sources.update", {"data_source_id": data_source_id, **kw}))
+        self.ds_properties.update(kw.get("properties", {}))
         return {}
 
     def _retrieve_data_source(self, data_source_id):
         self.calls.append(("data_sources.retrieve", {"data_source_id": data_source_id}))
-        return {"properties": {"Rank": {"id": "rank%3Aid", "type": "select"}}}
+        return {"properties": self.ds_properties}
+
+    def _create_upload(self, **kw):
+        self.calls.append(("file_uploads.create", kw))
+        return {"id": f"upload-{len(self.uploads) + 1}", "status": "pending"}
+
+    def _send_upload(self, file_upload_id, **kw):
+        self.calls.append(("file_uploads.send", {"file_upload_id": file_upload_id}))
+        self.uploads[file_upload_id] = kw["file"]
+        return {"id": file_upload_id, "status": "uploaded"}
 
     def _create_page(self, **kw):
         self.calls.append(("pages.create", kw))

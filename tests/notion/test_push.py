@@ -8,7 +8,17 @@ from jobapplier.core.rules import Rules
 from jobapplier.mail.gmail import MailError
 from jobapplier.models import Posting
 from jobapplier.notion.client import NotionError
-from jobapplier.notion.push import _page_properties, create_database, prune, push, set_status, style_database
+from jobapplier.notion.push import (
+    _page_properties,
+    approved_rows,
+    attach_resume,
+    create_database,
+    ensure_tailor_schema,
+    prune,
+    push,
+    set_status,
+    style_database,
+)
 from tests.conftest import FakeMail, FakeNotion, FakeViewsNotion, api_error
 
 NOW = datetime(2026, 10, 31, 12, tzinfo=UTC)
@@ -336,3 +346,117 @@ def test_prune_reports_a_notion_error_and_retries_that_row_next_time(rules, conf
     assert _decision(n, "page-3") == "Skip" and _decision(n, "page-2") == "New" and set(_pruned(conn)) == {3}
     n.fail_on_update.clear()
     assert prune(conn, n, strict, NOW) == (1, []) and _decision(n, "page-2") == "Skip"
+
+
+def sel(name):
+    return {"select": {"name": name}}
+
+
+def row(job_id, decision="Approve", status="New"):
+    return {
+        "Job ID": {"rich_text": [{"text": {"content": job_id}}]},
+        "Decision": sel(decision),
+        "Status": sel(status),
+    }
+
+
+def test_new_databases_have_the_tailor_properties():
+    n = FakeNotion()
+    create_database(n, "parent1", "Role Search")
+    props = n.calls[0][1]["initial_data_source"]["properties"]
+    assert props["Resume"] == {"files": {}} and props["Notes"] == {"rich_text": {}}
+    assert [o["name"] for o in props["Status"]["select"]["options"]] == ["New", "Tailored", "Needs review"]
+
+
+def test_ensure_tailor_schema_adds_only_what_is_missing_and_keeps_options():
+    n = FakeNotion()
+    n.ds_properties["Status"] = {
+        "id": "s",
+        "type": "select",
+        "select": {"options": [{"id": "o1", "name": "New", "color": "gray", "description": None}]},
+    }
+    ensure_tailor_schema(n, "ds1")
+    [(_, kw)] = [c for c in n.calls if c[0] == "data_sources.update"]
+    assert kw["properties"] == {
+        "Resume": {"files": {}},
+        "Notes": {"rich_text": {}},
+        "Status": {
+            "select": {
+                "options": [
+                    {"id": "o1", "name": "New", "color": "gray"},
+                    {"name": "Tailored"},
+                    {"name": "Needs review"},
+                ]
+            }
+        },
+    }
+    n.calls.clear()
+    ensure_tailor_schema(n, "ds1")
+    assert [c[0] for c in n.calls] == ["data_sources.retrieve"]
+
+
+def test_ensure_tailor_schema_refuses_a_status_of_another_type():
+    n = FakeNotion()
+    n.ds_properties["Status"] = {"type": "status", "status": {"options": []}}
+    with pytest.raises(NotionError, match="Status"):
+        ensure_tailor_schema(n, "ds1")
+    assert "data_sources.update" not in [c[0] for c in n.calls]
+
+
+def test_approved_rows_are_approve_or_approve_review_and_still_new():
+    n = FakeNotion()
+    n.rows = {
+        "p1": row("J1"),
+        "p2": row("J2", "Approve + review"),
+        "p3": row("J3", "Skip"),
+        "p4": row("J4", status="Tailored"),
+        "p5": row("J5", "New"),
+    }
+    assert [p["id"] for p in approved_rows(n, "ds1")] == ["p1", "p2"]
+    assert [p["id"] for p in approved_rows(n, "ds1", "J3")] == ["p3"]  # one row, whatever its Decision
+
+
+def _decided(page_id: str, decision: str) -> dict:
+    return {"id": page_id, "properties": {"Decision": {"select": {"name": decision}}}}
+
+
+def test_approved_rows_follow_pagination_and_keep_only_approved_decisions():
+    pages = [
+        {
+            "results": [_decided("p1", "Approve"), _decided("p9", "Skip")],
+            "has_more": True,
+            "next_cursor": "c1",
+        },
+        {"results": [_decided("p2", "Approve + review")], "has_more": False, "next_cursor": None},
+    ]
+    seen = []
+    n = FakeNotion()
+    n.data_sources.query = lambda **kw: seen.append(kw.get("start_cursor")) or pages.pop(0)
+    assert [p["id"] for p in approved_rows(n, "ds1")] == ["p1", "p2"]
+    assert seen == [None, "c1"]
+
+
+def test_attach_resume_uploads_the_pdf_and_sets_status_and_notes(tmp_path):
+    n = FakeNotion()
+    n.rows = {"p1": row("J1")}
+    pdf = tmp_path / "A_B.pdf"
+    pdf.write_bytes(b"%PDF-1.4 x")
+    attach_resume(n, "p1", pdf, "Needs review", "exp1.b1: 30 is not in the master line")
+    create = next(kw for name, kw in n.calls if name == "file_uploads.create")
+    assert create == {"mode": "single_part", "filename": "A_B.pdf", "content_type": "application/pdf"}
+    assert n.uploads["upload-1"] == ("A_B.pdf", b"%PDF-1.4 x", "application/pdf")
+    props = n.rows["p1"]
+    assert props["Resume"] == {
+        "files": [{"type": "file_upload", "file_upload": {"id": "upload-1"}, "name": "A_B.pdf"}]
+    }
+    assert props["Status"] == sel("Needs review")
+    assert props["Notes"]["rich_text"][0]["text"]["content"] == "exp1.b1: 30 is not in the master line"
+
+
+def test_attach_resume_without_notes_clears_old_notes(tmp_path):
+    n = FakeNotion()
+    n.rows = {"p1": {**row("J1"), "Notes": {"rich_text": [{"text": {"content": "old problem"}}]}}}
+    pdf = tmp_path / "A_B.pdf"
+    pdf.write_bytes(b"x")
+    attach_resume(n, "p1", pdf, "Tailored", "")
+    assert n.rows["p1"]["Notes"] == {"rich_text": []} and n.rows["p1"]["Status"] == sel("Tailored")

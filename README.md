@@ -1,6 +1,6 @@
 # JobApplier
 
-Every two hours, JobApplier pulls fresh software developer postings in Canada from FreeHire, Indeed and LinkedIn, drops duplicates and title-filtered noise, ranks what is left (new grad first, then by city), and adds new rows to a Notion database. You review the rows in Notion. Approving a row does nothing yet; the apply steps are not built.
+Every two hours, JobApplier pulls fresh software developer postings in Canada from FreeHire, Indeed and LinkedIn, drops duplicates and title-filtered noise, ranks what is left (new grad first, then by city), and adds new rows to a Notion database. You review the rows in Notion. Every 30 minutes it also makes a one-page tailored resume PDF for each row you approve and attaches it to the row; you apply with it yourself (the apply steps are not built yet).
 
 Sources: the FreeHire public API, and LinkedIn and Indeed through [python-jobspy](https://github.com/speedyapply/JobSpy) (list pages only, throttled with a delay between requests).
 
@@ -9,6 +9,7 @@ Sources: the FreeHire public API, and LinkedIn and Indeed through [python-jobspy
 - macOS (the scheduler is launchd)
 - [uv](https://docs.astral.sh/uv/)
 - A Notion account
+- For tailoring: [Claude Code](https://claude.com/claude-code) signed in, and [tectonic](https://tectonic-typesetting.github.io/) (`brew install tectonic`)
 
 ## Setup
 
@@ -87,6 +88,40 @@ The connection can only read. It asks Google for the single scope `gmail.readonl
 
 Mail is on whenever the token file exists. If Google rejects the token (revoked, or expired), discover reports `sign in again with mail-login`, pushes the rows without the flag and carries on; run `mail-login` again.
 
+## Tailoring
+
+`tailor` writes a one-page resume for each approved row, from your master resume, and attaches it to the row.
+
+1. Copy `resume/example.master.tex` to `resume/master.tex` and replace the content with your own. Everything in `resume/` except the example is git-ignored.
+2. End each line the tailor may change with a LaTeX comment marker: `% id:<id>`, plus ` required` for a line that is always printed. Ids are unique and stable:
+
+   ```latex
+   \resumeItem{Built a REST API in Go that served 3 clinics} % id:exp1.b1
+   \item \textbf{Languages:} Python, Go, TypeScript % id:skills.lang required
+   ```
+
+   The tailor changes the last `{...}` on the line, or the text after the last `}` (here, after the label). Lines without a marker stay as they are. Marked lines on consecutive lines form one list (one job's bullets); the tailor reorders lines only inside their list and keeps at least `tailor.min_lines_per_entry` (default 2) lines in each, putting omitted lines back in master order when needed.
+3. Set your name in `config.yaml`; the file is named `First_Last_Company_Role.pdf` in `output/`:
+
+   ```yaml
+   profile:
+     name: Alex Example
+   ```
+
+The flow: in Notion, set a row's Decision to **Approve** (or **Approve + review**), then run
+
+```
+uv run python -m jobapplier tailor
+```
+
+For each approved row still at Status New, Sonnet (`llm.models.tailor`, through `claude -p` on your Claude Code subscription) picks, orders and rewords your master lines for that job. It may add a line only when it comes from exactly one master line. The PDF is built with tectonic. The model is told to reword or replace a weak line rather than leave it out, and to leave out at most `tailor.max_omit` lines. If the PDF is longer than one page, optional lines are dropped (the last one of the section with the most), up to `tailor.max_drops` times; required lines are never dropped, and no job or project goes below `tailor.min_lines_per_entry` lines. The PDF goes into the row's **Resume** property and Status becomes **Tailored**. `tailor` adds the Resume and Notes properties and the new Status options to an older database the first time it runs; it never removes or renames anything.
+
+Status **Needs review** means: look at the resume before applying. It is set when you chose Approve + review, or when a check failed. Each changed line is checked against its master line. A number (digits or words such as `five` or `thousands`), a capitalized word or technology, or a job-description word outside `tailor.common_words` that is not in the master line, a stronger verb (`led`, `owned`, ... when the master line says `helped`), or LaTeX in the text puts the master line back. The model is asked once more when a line breaks the style rules (no dashes, at most `tailor.max_words` words, none of `tailor.banned_phrases`); a second failure also puts the master line back. The row's **Notes** says which lines and why. A row that fails outright (Claude or tectonic error) stays at New and the next run retries it.
+
+Writing style: the model must use two Claude Code skills that ship in the repo, `.claude/skills/humanizer` (removes AI-writing patterns) and `.claude/skills/asd-ste100` (short, plain sentences in the style of Simplified Technical English). The call loads project settings and may use only the Skill tool.
+
+To try one row, whatever its Decision: `uv run python -m jobapplier tailor --job J27`.
+
 ## Run once by hand
 
 ```
@@ -95,7 +130,7 @@ uv run python -m jobapplier discover
 
 Run it twice to check de-duplication: the second run should report no new rows. The database description in Notion shows the time and errors of the last run.
 
-## Run every two hours
+## Run on a schedule
 
 Run this from the repo root. It writes `~/Library/LaunchAgents/local.jobapplier.plist` with your repo path and the path to uv, and loads it as a LaunchAgent:
 
@@ -103,7 +138,7 @@ Run this from the repo root. It writes `~/Library/LaunchAgents/local.jobapplier.
 uv run python -m jobapplier install-agent
 ```
 
-It runs once when loaded, then every two hours; a run missed while the Mac slept happens on wake. Running it again reinstalls the agent. To remove it:
+The agent runs `python -m jobapplier run` once when loaded, then every 30 minutes: discover when the last discover is older than `schedule.discover_every_minutes` (120), then tailor approved rows. A run missed while the Mac slept happens on wake. Logs go to `logs/jobapplier.log`. Running it again reinstalls the agent. To remove it:
 
 ```
 uv run python -m jobapplier uninstall-agent
