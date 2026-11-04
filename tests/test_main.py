@@ -10,7 +10,7 @@ from jobapplier.mail.gmail import MailError
 from jobapplier.notion.client import NotionError, call, make_client
 from jobapplier.system import launchd
 from jobapplier.system.lock import locked
-from tests.conftest import AFFIRM_INDEED, FakeNotion, FakeSource
+from tests.conftest import AFFIRM_INDEED, FakeMail, FakeNotion, FakeSource
 
 
 @pytest.fixture
@@ -192,3 +192,29 @@ def test_mail_login_reports_failures_without_a_traceback_or_their_text(home, mon
     monkeypatch.setattr(app, "sign_in", missing)
     assert app.main(["mail-login"]) == 1
     assert capsys.readouterr().out.startswith("mail: put the OAuth client JSON")
+
+
+def _one_posting(monkeypatch, n):
+    monkeypatch.setattr(app, "make_client", lambda token: n)
+    monkeypatch.setattr(app, "build_sources", lambda cfg: [FakeSource("indeed", ([AFFIRM_INDEED], None))])
+
+
+def test_discover_leaves_mail_off_until_the_token_file_exists(home, monkeypatch):
+    root, _ = home
+    set_ids(root)
+    _one_posting(monkeypatch, FakeNotion())
+    monkeypatch.setattr(app, "Gmail", lambda *a, **kw: pytest.fail("mail must be off"))
+    assert app.main(["discover"]) == 0
+
+
+def test_discover_uses_mail_when_the_token_file_exists(home, monkeypatch):
+    root, _ = home
+    set_ids(root)
+    (root / "data").mkdir()
+    (root / "data" / "gmail_token.json").write_text("{}")
+    n, mail, made = FakeNotion(), FakeMail({"Affirm": "2026-05-02: Application received"}), []
+    _one_posting(monkeypatch, n)
+    monkeypatch.setattr(app, "Gmail", lambda cfg, r: made.append((cfg["token"], r)) or mail)
+    assert app.main(["discover"]) == 0
+    assert made == [("data/gmail_token.json", root)] and mail.calls == ["Affirm"]
+    assert n.rows["page-1"]["Flags"]["multi_select"] == [{"name": "Applied before"}]

@@ -71,6 +71,11 @@ def _install_agent() -> int:
     return 0
 
 
+def _gmail(cfg: dict) -> Gmail | None:
+    """Mail is on once `mail-login` has saved a token; Gmail itself signs in lazily, on the first lookup."""
+    return Gmail(cfg["mail"], _ROOT) if (_ROOT / cfg["mail"]["token"]).exists() else None
+
+
 def _mail_login() -> int:
     mail_cfg = load_config(_ROOT)["mail"]
     try:
@@ -123,7 +128,7 @@ def _discover() -> int:
             conn = clusters.connect(str(_ROOT / "data" / "jobs.db"))
             client = make_client(token)
             result = run_discover(
-                conn, cfg, Rules.from_config(cfg), build_sources(cfg), client, datetime.now(UTC)
+                conn, cfg, Rules.from_config(cfg), build_sources(cfg), client, datetime.now(UTC), _gmail(cfg)
             )
         _log.info("discover done: %s", result)
         if result["alert"]:

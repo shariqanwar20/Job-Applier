@@ -123,6 +123,19 @@ class FakeNotion:
         return {"id": "db1", "data_sources": [{"id": "ds1"}]}
 
 
+class FakeMail:
+    """Stands in for Gmail: hits maps a company to its hit text; error is raised on every call."""
+
+    def __init__(self, hits=None, error=None):
+        self.hits, self.error, self.calls = dict(hits or {}), error, []
+
+    def applied_before(self, company):
+        self.calls.append(company)
+        if self.error:
+            raise self.error
+        return self.hits.get(company)
+
+
 class FakeViewsNotion:
     """The Notion client built for the views API (a newer Notion version than FakeNotion's)."""
 

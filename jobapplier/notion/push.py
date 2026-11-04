@@ -1,11 +1,15 @@
+import logging
 from datetime import datetime
 
 from notion_client import Client
 
 from jobapplier.core import clusters
+from jobapplier.mail.gmail import MailError
 from jobapplier.notion.client import NotionError, call
 
 __all__ = ["create_database", "prune", "push", "set_status", "style_database"]
+
+_log = logging.getLogger("jobapplier")
 
 
 def _options(*names: str) -> dict:
@@ -25,7 +29,8 @@ _SCHEMA = {
     "Flags": {
         "multi_select": {
             "options": [
-                {"name": n} for n in ("Remote US", "Aggregator link", "Repost", "Filtered", "Duplicate")
+                {"name": n}
+                for n in ("Remote US", "Aggregator link", "Repost", "Filtered", "Duplicate", "Applied before")
             ]
         }
     },
@@ -114,8 +119,12 @@ def _find_page(client: Client, ds_id: str, job_id: str) -> str | None:
     return r["results"][0]["id"] if r["results"] else None
 
 
-def push(conn, client: Client, ds_id: str, rules) -> tuple[int, list[str]]:
-    created, errors = 0, []
+def push(conn, client: Client, ds_id: str, rules, mail=None) -> tuple[int, list[str]]:
+    """Adds the new clusters as rows. With mail, flags a company applied to before.
+
+    A mail failure is recorded once and mail is not asked again this run; the rows still go in.
+    """
+    created, errors, applied = 0, [], {}
     for row in clusters.pushable(conn):
         job_id = f"J{row['id']}"
         s = clusters.summarize(clusters.members(conn, row["id"]), rules, bool(row["repost"]))
@@ -123,6 +132,15 @@ def push(conn, client: Client, ds_id: str, rules) -> tuple[int, list[str]]:
             # Look up first: a crash after the create but before the commit must not duplicate the row.
             page_id = _find_page(client, ds_id, job_id)
             if page_id is None:
+                if mail is not None and s["company"] not in applied:
+                    try:
+                        applied[s["company"]] = mail.applied_before(s["company"])
+                    except MailError as exc:
+                        errors.append(str(exc))
+                        mail = None
+                if hit := applied.get(s["company"]):
+                    s["flags"].append("Applied before")
+                    _log.info("applied before: %s (%s)", s["company"], hit)
                 page_id = call(
                     client.pages.create,
                     parent={"type": "data_source_id", "data_source_id": ds_id},

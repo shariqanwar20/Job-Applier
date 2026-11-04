@@ -5,10 +5,11 @@ import pytest
 
 from jobapplier.core.clusters import assign, connect
 from jobapplier.core.rules import Rules
+from jobapplier.mail.gmail import MailError
 from jobapplier.models import Posting
 from jobapplier.notion.client import NotionError
 from jobapplier.notion.push import _page_properties, create_database, prune, push, set_status, style_database
-from tests.conftest import FakeNotion, FakeViewsNotion, api_error
+from tests.conftest import FakeMail, FakeNotion, FakeViewsNotion, api_error
 
 NOW = datetime(2026, 10, 31, 12, tzinfo=UTC)
 SUMMARY = {
@@ -175,6 +176,58 @@ def test_push_treats_a_network_error_as_a_per_row_error(rules):
         None,
         "page-2",
     ]
+
+
+def _row_flags(n, company):
+    page = next(p for p in n.rows.values() if p["Company"]["rich_text"][0]["text"]["content"] == company)
+    return [f["name"] for f in page["Flags"]["multi_select"]]
+
+
+def test_push_flags_a_row_whose_company_was_applied_to_and_logs_the_hit(rules, caplog):
+    conn, n = seed(rules), FakeNotion()
+    mail = FakeMail({"Co2": "2026-09-01: Thank you for applying to Co2"})
+    with caplog.at_level("INFO", logger="jobapplier"):
+        assert push(conn, n, "ds1", rules, mail) == (3, [])
+    assert "Applied before" in _row_flags(n, "Co2")
+    assert "Applied before" not in _row_flags(n, "Co1") + _row_flags(n, "Co3")
+    assert "2026-09-01: Thank you for applying to Co2" in caplog.text
+    assert mail.calls == ["Co1", "Co2", "Co3"]
+
+
+def test_push_asks_mail_once_per_company_and_only_for_new_rows(rules):
+    conn = seed(rules, 1)
+    conn.execute("UPDATE clusters SET notion_page_id = NULL")
+    assign(
+        conn,
+        Posting(
+            "freehire",
+            "x",
+            "Software Developer",
+            "Co1",
+            "Toronto, ON",
+            "https://boards.greenhouse.io/co1/jobs/9",
+        ),
+        rules,
+        NOW,
+        False,
+    )
+    conn.commit()
+    n, mail = FakeNotion(), FakeMail()
+    n.rows["old"] = {"Job ID": {"rich_text": [{"text": {"content": "J1"}}]}}  # J1 exists in Notion already
+    assert push(conn, n, "ds1", rules, mail) == (1, []) and mail.calls == ["Co1"]
+
+
+def test_push_with_a_failing_mail_records_one_error_and_still_pushes_every_row(rules):
+    conn, n = seed(rules), FakeNotion()
+    mail = FakeMail(error=MailError("mail: HTTP 500"))
+    assert push(conn, n, "ds1", rules, mail) == (3, ["mail: HTTP 500"])
+    assert mail.calls == ["Co1"] and all("Applied before" not in _row_flags(n, f"Co{i}") for i in (1, 2, 3))
+
+
+def test_push_without_mail_adds_no_flag(rules):
+    conn, n = seed(rules, 1), FakeNotion()
+    push(conn, n, "ds1", rules)
+    assert _row_flags(n, "Co1") == ["Aggregator link"]
 
 
 def _rules_with(config, **overrides):

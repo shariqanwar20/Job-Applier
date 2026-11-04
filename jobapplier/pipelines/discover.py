@@ -12,7 +12,7 @@ __all__ = ["run_discover"]
 _log = logging.getLogger("jobapplier")
 
 
-def run_discover(conn, cfg: dict, rules: Rules, sources: list, client, now: datetime) -> dict:
+def run_discover(conn, cfg: dict, rules: Rules, sources: list, client, now: datetime, mail=None) -> dict:
     errors, skipped, first_skip = [], 0, None
     for src in sources:
         try:
@@ -33,7 +33,7 @@ def run_discover(conn, cfg: dict, rules: Rules, sources: list, client, now: date
         errors.append(f"skipped {skipped} postings: {first_skip}")
     conn.commit()  # before pushing: push commits per cluster and must not lose the assignments
 
-    created, push_errors = push(conn, client, cfg["notion"]["data_source_id"], rules)
+    created, push_errors = push(conn, client, cfg["notion"]["data_source_id"], rules, mail)
     errors += push_errors
     pruned, prune_errors = prune(conn, client, rules, now)
     errors += prune_errors

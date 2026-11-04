@@ -5,10 +5,11 @@ from types import SimpleNamespace
 
 from jobapplier.core.clusters import connect
 from jobapplier.core.rules import Rules
+from jobapplier.mail.gmail import MailError
 from jobapplier.models import Posting
 from jobapplier.pipelines.discover import run_discover
 from jobapplier.sources.freehire import FreeHire
-from tests.conftest import AFFIRM_INDEED, FakeNotion, FakeSource, api_error
+from tests.conftest import AFFIRM_INDEED, FakeMail, FakeNotion, FakeSource, api_error
 
 PAGE = json.loads((pathlib.Path(__file__).parents[1] / "fixtures/freehire_page.json").read_text())
 NOW = datetime(2026, 10, 31, 12, tzinfo=UTC)
@@ -126,3 +127,25 @@ def test_prune_errors_join_the_list(rules, config):
     strict = Rules.from_config({**config, "rules": {**config["rules"], "blocked_companies": ["affirm"]}})
     r = run_discover(conn, config, strict, srcs, n, NOW)
     assert r["errors"] == ["notion: J1: 400 boom"] and r["alert"] is True and "· 0 pruned ·" in n.description
+
+
+def test_run_discover_flags_rows_for_companies_applied_to(rules, config):
+    n, mail = FakeNotion(), FakeMail({"Affirm": "2026-05-02: Thank you for applying to Affirm"})
+    srcs = [FakeSource("indeed", ([AFFIRM_INDEED], None))]
+    r = run_discover(connect(":memory:"), config, rules, srcs, n, NOW, mail)
+    assert [f["name"] for f in n.rows["page-1"]["Flags"]["multi_select"]] == ["Applied before"]
+    assert r["errors"] == [] and r["alert"] is False
+
+
+def test_run_discover_mail_failure_is_one_alerting_error_and_rows_still_land(rules, config):
+    n, mail = (
+        FakeNotion(),
+        FakeMail(error=MailError("mail: sign in again with `python -m jobapplier mail-login`")),
+    )
+    srcs = [FakeSource("freehire", (fixture_rows(), None))]
+    r = run_discover(connect(":memory:"), config, rules, srcs, n, NOW, mail)
+    assert len(n.rows) == r["new_rows"] > 1 and len(mail.calls) == 1
+    assert (
+        r["errors"] == ["mail: sign in again with `python -m jobapplier mail-login`"] and r["alert"] is True
+    )
+    assert "errors: mail: sign in again" in n.description
