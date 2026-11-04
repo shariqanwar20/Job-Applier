@@ -50,12 +50,17 @@ mail:  # read-only Gmail (OAuth scope gmail.readonly); on when the token file ex
   applied_lookback_days: 365    # how far back "applied before" looks
   # A message whose subject or start of body has one of these (whole words) counts as an application confirmation.
   applied_phrases: [thank you for applying, thanks for applying, application received, we received your application, your application to, application submitted]
+profile:
+  name: ""  # your full name, set in config.yaml; the first and last words name the resume file
 llm:  # headless Claude Code calls (`claude -p`) on your subscription
   claude: /opt/homebrew/bin/claude
   timeout_seconds: 300
   models: {tailor: claude-sonnet-5-5, classify: claude-haiku-5-5}
 tailor:  # a one-page resume per approved row, from resume/master.tex; see README "Tailoring"
   master: resume/master.tex
+  output_dir: output             # the PDFs, First_Last_Company_Role.pdf
+  tectonic: /opt/homebrew/bin/tectonic
+  max_drops: 8                   # optional lines dropped, at most, to fit one page
   max_words: 25                  # per resume line
   max_description_chars: 12000   # of the job description sent to the model
   # A capitalized or technology word (Go, Node.js, C++) the model adds must be in the master line it rewords,
