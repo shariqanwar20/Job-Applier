@@ -124,12 +124,19 @@ _BUTTONS = (
     + _FACTS
     + f"""
   const name = {_NAME};
+  // The form that holds the fields read_fields tagged, else the main content: a next button elsewhere
+  // (a carousel, a job list) is not a step of this form.
+  const fields = [...document.querySelectorAll('[data-jobapplier]')];
+  let common = fields[0] || null;
+  while (common && !fields.every(f => common.contains(f))) common = common.parentElement;
+  const box = (common && common.closest('form'))
+    || document.querySelector('main, [role=main]') || document.body;
   const out = [];
   document.querySelectorAll('button, input[type=submit], input[type=button], [role=button]')
     .forEach((el, i) => {{
       if (el.tagName === 'A') return;
       el.setAttribute('data-jobapplier-button', String(i));
-      out.push({{id: String(i), ...name(el), ...facts(el)}});
+      out.push({{id: String(i), ...name(el), in_form: box.contains(el), ...facts(el)}});
     }});
   return out;
 }}"""
@@ -365,10 +372,10 @@ def button_name(button) -> dict:
 def next_button(buttons: list[dict], rules: FieldRules) -> tuple[str | None, str]:
     """(id of the visible next-step button, "") or (None, why the owner takes over here)."""
     shown = [b for b in buttons if b["visible"]]
-    if nxt := [b for b in shown if rules.is_next(b)]:
-        return nxt[0]["id"], ""
-    if any(rules.is_submit_button(b) for b in shown):
+    if any(rules.is_submit_button(b) for b in shown):  # anywhere on the page: stop here
         return None, "This is the last step: check every page, then submit yourself."
+    if nxt := [b for b in shown if b["in_form"] and rules.is_next(b)]:
+        return nxt[0]["id"], ""
     return None, "No Next button found: continue yourself."
 
 

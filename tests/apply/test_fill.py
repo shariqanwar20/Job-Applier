@@ -464,3 +464,16 @@ def test_is_next_needs_an_exact_visible_next_name_and_no_submit_or_sign_in_word_
 )
 def test_is_next_accepts_a_plain_next_button(names, rules):
     assert rules.is_next(button("1", **names))
+
+
+def test_any_visible_submit_button_on_the_page_stops_the_walk(rules):
+    bid, why = next_button([button("1", "Next"), button("2", "Submit application")], rules)
+    assert bid is None and "submit yourself" in why
+    bid, _ = next_button([button("1", "Next"), button("2", "Apply now", in_form=False)], rules)
+    assert bid is None  # outside the form, but on the page
+    assert next_button([button("1", "Next"), button("2", "Submit", visible=False)], rules) == ("1", "")
+
+
+def test_only_a_button_in_the_form_that_holds_the_fields_is_a_next_button(rules):
+    bid, why = next_button([button("1", "Next", in_form=False)], rules)
+    assert bid is None and "No Next button" in why
