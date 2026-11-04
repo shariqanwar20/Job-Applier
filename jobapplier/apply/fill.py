@@ -1,7 +1,8 @@
 """Pre-fills an application form from profile.yaml. It never submits: see the module test.
 
 The logic works on plain field dicts (read_fields builds them from the page), so it is tested without a
-browser. On the page it only calls fill, select_option, check (radios) and set_input_files.
+browser. On the page it only calls fill, select_option, check (radios and consent boxes) and
+set_input_files.
 """
 
 import re
@@ -86,6 +87,9 @@ class FieldRules:
     fields: tuple[tuple[re.Pattern, tuple[str, ...]], ...]  # (label pattern, profile keys to try)
     decline: re.Pattern
     login: re.Pattern
+    consent: re.Pattern
+    opt_in: re.Pattern
+    tick_opt_ins: bool
 
     @classmethod
     def from_config(cls, apply_cfg: dict) -> "FieldRules":
@@ -93,7 +97,14 @@ class FieldRules:
             (_words(r["patterns"]), tuple(r["key"]) if isinstance(r["key"], list) else (r["key"],))
             for r in apply_cfg["fields"]
         )
-        return cls(fields, _words(apply_cfg["decline_words"]), _words(apply_cfg["login_words"]))
+        return cls(
+            fields,
+            _words(apply_cfg["decline_words"]),
+            _words(apply_cfg["login_words"]),
+            _words(apply_cfg["consent_words"]),
+            _words(apply_cfg["opt_in_words"]),
+            bool(apply_cfg["tick_opt_ins"]),
+        )
 
 
 def group_radios(raw: list[dict]) -> list[dict]:
@@ -118,8 +129,12 @@ def read_fields(page) -> list[dict]:
     return group_radios(page.evaluate(_READ))
 
 
+def _label(f: dict) -> str:
+    return (f["label"] or f["before"] or f["name"]).strip()
+
+
 def _display(f: dict) -> str:
-    return (f["label"] or f["before"] or f["name"]).strip()[:120]
+    return _label(f)[:120]
 
 
 def _is_honeypot(f: dict) -> bool:
@@ -127,6 +142,8 @@ def _is_honeypot(f: dict) -> bool:
 
 
 def _is_empty(f: dict) -> bool:
+    if f["type"] == "checkbox":
+        return not f["checked"]
     if f["type"] == "select":
         return bool(_PLACEHOLDER.search(norm(f["value"])))
     return not f["value"].strip()
@@ -161,12 +178,18 @@ def _choose(options: list[str], value: str, rules: FieldRules) -> str | None:
 
 def plan(fields: list[dict], values: dict, rules: FieldRules, description: str) -> list[tuple]:
     """(method, field id, argument, label) for each field to fill. Only empty fields are filled, except
-    name, email and phone, which are set to the profile's."""
+    name, email and phone, which are set to the profile's. Consent checkboxes are ticked."""
     actions = []
     for f in fields:
-        if f["type"] in ("checkbox", "file", "password") or not f["visible"] or _is_honeypot(f):
-            continue  # checkboxes are consent or marketing: the owner decides
-        text = norm(f"{_display(f)} {f['name']}")
+        if f["type"] in ("file", "password") or not f["visible"] or _is_honeypot(f):
+            continue
+        text = norm(f"{_label(f)} {f['name']}")
+        if f["type"] == "checkbox":
+            # an opt-in wins over consent words: "I agree to receive marketing emails" stays unticked
+            opt_in = bool(rules.opt_in.search(text))
+            if not f["checked"] and (rules.tick_opt_ins if opt_in else rules.consent.search(text)):
+                actions.append(("check", f["id"], "", _display(f)))
+            continue
         keys = next((k for pattern, k in rules.fields if pattern.search(text)), ("skip",))
         if keys == ("skip",):
             continue
@@ -220,11 +243,7 @@ def missing_required(fields: list[dict]) -> list[str]:
     return [
         _display(f)
         for f in fields
-        if f["required"]
-        and f["visible"]
-        and f["type"] not in ("file", "checkbox")
-        and not _is_honeypot(f)
-        and _is_empty(f)
+        if f["required"] and f["visible"] and f["type"] != "file" and not _is_honeypot(f) and _is_empty(f)
     ]
 
 

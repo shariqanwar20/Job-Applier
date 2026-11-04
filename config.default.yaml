@@ -91,6 +91,11 @@ apply:  # `apply` opens ready rows in Chrome and pre-fills the form; you check i
   field_timeout_seconds: 3         # per field; a field that takes longer is left for you
   # A page whose URL or title has one of these (whole words), or that shows a password field, is left for you.
   login_words: [sign in, signin, log in, login, create account, create an account, sign up, signup, register]
+  # A checkbox whose label has one of consent_words is ticked (terms, privacy, "the above is accurate").
+  # One with an opt_in_words word is left for you, even when it also has a consent word, unless tick_opt_ins.
+  consent_words: [consent, agree, acknowledge, privacy, terms, certify, accurate, true and complete, authorize]
+  opt_in_words: [marketing, newsletter, sms, text message, promotional, job alerts, updates by email]
+  tick_opt_ins: false
   # The option picked for a demographic question when profile.yaml has voluntary_self_id: decline.
   decline_words: [prefer not, decline, do not wish, don t wish, not to answer, not to disclose, not to say, choose not, rather not, not wish to]
   # Field label -> profile.yaml key. The first rule with a pattern in the label wins (whole words, normalized

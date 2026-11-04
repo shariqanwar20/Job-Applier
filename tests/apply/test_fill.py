@@ -180,7 +180,6 @@ def test_hidden_fields_honeypots_checkboxes_and_passwords_are_never_touched(rule
     assert one(field(name="hp_email", label="Email"), rules) == []
     assert one(field(name="website_honeypot", label="Website"), rules) == []
     assert one(field(name="email2", tabindex="-1", before="Email"), rules) == []
-    assert one(field(label="Email me about new jobs", type="checkbox"), rules) == []
     assert one(field(label="Email", type="password"), rules) == []
     assert one(field(label="Resume", type="file"), rules) == []
 
@@ -239,3 +238,28 @@ def test_the_filler_never_clicks_submits_presses_keys_or_types_passwords(module)
     assert [p for p in forbidden if re.search(p, src)] == []
     called = set(re.findall(r"\.(fill|select_option|check|set_input_files|uncheck)\(", src))
     assert called <= {"fill", "select_option", "check", "set_input_files"}
+
+
+CONSENT = "I agree to the privacy policy and certify that my answers are accurate"
+OPT_IN = "I agree to receive marketing emails and job alerts"
+
+
+def test_consent_boxes_are_ticked_and_opt_ins_are_left_unless_configured(config):
+    boxes = [
+        field("1", CONSENT, type="checkbox", value="on"),
+        field("2", OPT_IN, type="checkbox", value="on"),
+        field("3", "Toronto", type="checkbox", value="on", before="Which offices?"),
+        field("4", "I acknowledge the terms", type="checkbox", value="on", checked=True),
+        field("5", CONSENT, type="checkbox", value="on", visible=False),
+    ]
+    rules = FieldRules.from_config(config["apply"])
+    assert [a[:2] for a in plan(boxes, VALUES, rules, "")] == [("check", "1")]
+    config["apply"]["tick_opt_ins"] = True
+    rules = FieldRules.from_config(config["apply"])
+    assert [a[:2] for a in plan(boxes, VALUES, rules, "")] == [("check", "1"), ("check", "2")]
+
+
+def test_an_unticked_required_checkbox_is_missing():
+    box = field("1", "I agree to the terms", type="checkbox", value="on", required=True)
+    assert missing_required([box]) == ["I agree to the terms"]
+    assert missing_required([{**box, "checked": True}]) == []
