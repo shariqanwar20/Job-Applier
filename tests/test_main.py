@@ -345,6 +345,7 @@ def test_apply_opens_the_job_in_chrome_and_marks_it_submitted(home, monkeypatch,
     clusters.assign(conn, AFFIRM_INDEED, rules, datetime(2026, 11, 1, tzinfo=UTC), False)
     (root / "output").mkdir()
     (root / "output" / "A_J1.pdf").write_bytes(b"%PDF")
+    clusters.record_resume(conn, 1, str(root / "output" / "A_J1.pdf"))
     conn.commit()
     n = FakeNotion()
     n.rows = {

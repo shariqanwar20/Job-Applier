@@ -2,7 +2,6 @@
 
 import logging
 from datetime import date
-from pathlib import Path
 from urllib.parse import urlsplit
 
 from jobapplier.apply.browser import prepare
@@ -41,7 +40,6 @@ def run_apply(
     client,
     rules: Rules,
     values: dict,
-    root: Path,
     browser,
     job_id: str | None = None,
     ask=input,
@@ -53,7 +51,7 @@ def run_apply(
     browser is a context manager giving a browser context; it closes Chrome on exit.
     """
     ensure_tailor_schema(client, cfg["notion"]["data_source_id"])
-    targets, skipped = find_targets(conn, client, cfg, rules, root, job_id)
+    targets, skipped = find_targets(conn, client, cfg, rules, job_id)
     cap = cfg["apply"]["max_tabs"]
     skipped += [
         f"{t.job_id} ({t.company}): over apply.max_tabs ({cap}); run apply again" for t in targets[cap:]
@@ -80,9 +78,8 @@ def run_apply(
             if _answer(ask, f"Submitted {t.job_id} ({t.company})? [y/N] ") not in ("y", "yes"):
                 continue
             try:
-                mark_submitted(
-                    client, t.page, f"Submitted {today().isoformat()} via {urlsplit(t.url).hostname}"
-                )
+                note = f"Submitted {today().isoformat()} via {urlsplit(t.url).hostname}"
+                mark_submitted(client, t.page["id"], note)
                 result["submitted"] += 1
             except NotionError as exc:
                 say(f"{t.job_id}: could not set Status in Notion ({exc}); set it to Submitted yourself")

@@ -139,7 +139,7 @@ def _apply(job_id: str | None) -> int:
     try:
         rules = Rules.from_config(cfg)
         # input passed here, not as run_apply's default, so it is looked up when called
-        result = run_apply(conn, cfg, make_client(token), rules, values, _ROOT, browser, job_id, ask=input)
+        result = run_apply(conn, cfg, make_client(token), rules, values, browser, job_id, ask=input)
     except NotionError as exc:
         print(f"notion: {exc}")
         return 1

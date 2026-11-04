@@ -485,16 +485,19 @@ def test_ready_rows_are_tailored_or_reviewed_with_a_resume_matched_in_code():
         "p3": _ready("J3", "Needs review"),
         "p4": _ready("J4", "Submitted"),
         "p5": _ready("J5", "New", resume=False),
+        "p6": _ready("J6", "Reviewed", resume=False),  # the PDF comes from SQLite, not the row
     }
-    assert [p["id"] for p in ready_rows(n, "ds1")] == ["p1", "p2"]
+    assert [p["id"] for p in ready_rows(n, "ds1")] == ["p1", "p2", "p6"]
     [(_, kw)] = [c for c in n.calls if c[0] == "data_sources.query"]
-    assert kw["filter"] == {"property": "Resume", "files": {"is_not_empty": True}}
+    assert "filter" not in kw  # no Notion filter has been checked live for this, so Status is matched in code
     assert [p["id"] for p in ready_rows(n, "ds1", "J4")] == ["p4"]  # one row, whatever its Status
 
 
-def test_mark_submitted_sets_status_and_keeps_earlier_notes_after_the_new_one():
+def test_mark_submitted_sets_status_and_keeps_the_current_notes_after_the_new_one():
     n = FakeNotion()
     n.rows = {"p1": {**row("J1", status="Tailored"), "Notes": {"rich_text": [{"text": {"content": "old"}}]}}}
-    mark_submitted(n, {"id": "p1", "properties": n.rows["p1"]}, "Submitted 2026-11-04 via x")
+    n.rows["p1"]["Notes"] = {"rich_text": [{"text": {"content": "edited while Chrome was open"}}]}
+    mark_submitted(n, "p1", "Submitted 2026-11-04 via x")
     assert n.rows["p1"]["Status"] == sel("Submitted")
-    assert n.rows["p1"]["Notes"]["rich_text"][0]["text"]["content"] == "Submitted 2026-11-04 via x; old"
+    notes = n.rows["p1"]["Notes"]["rich_text"][0]["text"]["content"]
+    assert notes == "Submitted 2026-11-04 via x; edited while Chrome was open"

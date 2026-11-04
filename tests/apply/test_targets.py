@@ -1,4 +1,3 @@
-import os
 from datetime import UTC, datetime
 
 import pytest
@@ -87,7 +86,7 @@ def test_the_ats_member_wins_and_the_recorded_pdf_is_used(home):
     record_resume(conn, cid, str(pdf(root, "A_Acme.pdf")))
     n = FakeNotion()
     n.rows = {"p1": row("J1", link="https://ca.linkedin.com/jobs/view/1")}
-    targets, skipped = find_targets(conn, n, cfg, rules, root)
+    targets, skipped = find_targets(conn, n, cfg, rules)
     assert skipped == []
     [t] = targets
     assert (t.job_id, t.company, t.url) == ("J1", "Acme", "https://jobs.lever.co/acme/abc/apply")
@@ -98,10 +97,10 @@ def test_the_ats_member_wins_and_the_recorded_pdf_is_used(home):
 def test_a_non_aggregator_member_is_used_when_no_member_is_an_ats(home):
     root, cfg, rules, conn = home
     add(conn, rules, 1, "https://www.indeed.com/viewjob?jk=1", "https://careers.acme.com/jobs/42")
-    pdf(root, "A_Acme_J1.pdf")
+    record_resume(conn, 1, str(pdf(root, "A_Acme_J1.pdf")))
     n = FakeNotion()
     n.rows = {"p1": row("J1")}
-    [t], _ = find_targets(conn, n, cfg, rules, root)
+    [t], _ = find_targets(conn, n, cfg, rules)
     assert t.url == "https://careers.acme.com/jobs/42"
 
 
@@ -109,18 +108,18 @@ def test_aggregator_only_rows_are_skipped_unless_link_holds_the_employer_page(ho
     root, cfg, rules, conn = home
     add(conn, rules, 1, "https://ca.linkedin.com/jobs/view/1", "https://www.indeed.com/viewjob?jk=1")
     add(conn, rules, 2, "https://ca.linkedin.com/jobs/view/2")
-    pdf(root, "A_J1.pdf")
-    pdf(root, "A_J2.pdf")
+    record_resume(conn, 1, str(pdf(root, "A_J1.pdf")))
+    record_resume(conn, 2, str(pdf(root, "A_J2.pdf")))
     n = FakeNotion()
     n.rows = {"p1": row("J1", link="https://ca.linkedin.com/jobs/view/1"), "p2": row("J2")}
-    targets, skipped = find_targets(conn, n, cfg, rules, root)
+    targets, skipped = find_targets(conn, n, cfg, rules)
     assert targets == []
     assert skipped == [
         "J1 (Acme): only a job-board link: find the employer's posting and put it in Link",
         "J2 (Acme): only a job-board link: find the employer's posting and put it in Link",
     ]
     n.rows["p1"]["Link"] = {"url": "https://jobs.ashbyhq.com/acme/77"}  # the owner found it
-    targets, _ = find_targets(conn, n, cfg, rules, root, "J1")
+    targets, _ = find_targets(conn, n, cfg, rules, "J1")
     assert [t.url for t in targets] == ["https://jobs.ashbyhq.com/acme/77/application"]
 
 
@@ -130,26 +129,23 @@ def test_a_row_without_a_pdf_is_skipped(home):
     record_resume(conn, 1, str(root / "output" / "gone.pdf"))  # deleted since
     n = FakeNotion()
     n.rows = {"p1": row("J1")}
-    targets, skipped = find_targets(conn, n, cfg, rules, root)
-    assert targets == [] and skipped == ["J1 (Acme): no resume PDF in output/: run tailor first"]
+    targets, skipped = find_targets(conn, n, cfg, rules)
+    assert targets == [] and skipped == ["J1 (Acme): no tailored PDF on record: run tailor --job J1 again"]
 
 
-def test_the_pdf_falls_back_to_the_notion_resume_name_then_the_newest_job_id_file(home):
+def test_the_pdf_is_only_the_one_tailor_recorded(home):
     root, cfg, rules, conn = home
     add(conn, rules, 1, "https://jobs.lever.co/acme/abc")
-    add(conn, rules, 2, "https://jobs.lever.co/acme/def")
-    pdf(root, "A_Acme_Developer.pdf")
-    old, new = pdf(root, "A_old_J2.pdf"), pdf(root, "A_new_J2.pdf")
-    os.utime(old, (1, 1))
-    pdf(root, "A_J22.pdf")  # another job's file
+    pdf(root, "not-in-output.pdf")  # the row's Notion Resume name
+    pdf(root, "A_J1.pdf")  # a file named for the job, but not recorded
     n = FakeNotion()
-    n.rows = {"p1": row("J1", resume="A_Acme_Developer.pdf"), "p2": row("J2")}
-    targets, _ = find_targets(conn, n, cfg, rules, root)
-    assert [t.pdf for t in targets] == [root / "output" / "A_Acme_Developer.pdf", new]
+    n.rows = {"p1": row("J1")}
+    targets, skipped = find_targets(conn, n, cfg, rules)
+    assert targets == [] and skipped == ["J1 (Acme): no tailored PDF on record: run tailor --job J1 again"]
 
 
 def test_a_row_without_a_cluster_is_skipped(home):
-    root, cfg, rules, conn = home
+    _, cfg, rules, conn = home
     n = FakeNotion()
     n.rows = {"p1": row("J9")}
-    assert find_targets(conn, n, cfg, rules, root) == ([], ["J9 (Acme): no cluster in data/jobs.db"])
+    assert find_targets(conn, n, cfg, rules) == ([], ["J9 (Acme): no cluster in data/jobs.db"])

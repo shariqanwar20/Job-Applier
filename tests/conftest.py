@@ -85,8 +85,6 @@ class FakeNotion:
         if "or" in f:
             return any(self._matches(props, g) for g in f["or"])
         p = props.get(f["property"], {})
-        if "files" in f:
-            return bool(p.get("files"))
         if "select" in f:
             return (p.get("select") or {}).get("name") == f["select"]["equals"]
         return "".join(t["text"]["content"] for t in p.get("rich_text", [])) == f["rich_text"]["equals"]
@@ -94,7 +92,9 @@ class FakeNotion:
     def _query(self, data_source_id, **kw):
         self.calls.append(("data_sources.query", {"data_source_id": data_source_id, **kw}))
         hits = [
-            {"id": pid, "properties": p} for pid, p in self.rows.items() if self._matches(p, kw["filter"])
+            {"id": pid, "properties": p}
+            for pid, p in self.rows.items()
+            if "filter" not in kw or self._matches(p, kw["filter"])
         ]
         return {"results": hits[: kw["page_size"]], "has_more": False, "next_cursor": None}
 

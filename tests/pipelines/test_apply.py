@@ -68,7 +68,7 @@ def home(tmp_path, config, rules):
 
 
 def run(home, answers, pages=None, job_id=None):
-    root, cfg, rules, conn, n = home
+    _, cfg, rules, conn, n = home
     ctx = FakeContext(pages or [FakePage([[field("1", "Email")]]) for _ in range(3)])
 
     @contextmanager
@@ -88,7 +88,6 @@ def run(home, answers, pages=None, job_id=None):
         n,
         rules,
         VALUES,
-        root,
         fake_browser,
         job_id,
         ask=ask,
@@ -145,9 +144,9 @@ def test_nothing_ready_opens_no_browser(home):
         pytest.fail("must not open Chrome")
         yield
 
-    root, cfg, rules, conn, _ = home
+    _, cfg, rules, conn, _ = home
     said = []
-    result = run_apply(conn, cfg, n, rules, VALUES, root, no_browser, ask=pytest.fail, say=said.append)
+    result = run_apply(conn, cfg, n, rules, VALUES, no_browser, ask=pytest.fail, say=said.append)
     assert result == {"opened": 0, "skipped": 0, "submitted": 0} and said == ["Nothing ready to apply."]
 
 
@@ -171,14 +170,14 @@ def test_end_of_input_counts_as_no(home):
     def eof(prompt):
         raise EOFError
 
-    root, cfg, rules, conn, n = home
+    _, cfg, rules, conn, n = home
     ctx = FakeContext([FakePage([[]]), FakePage([[]])])
 
     @contextmanager
     def fake_browser():
         yield ctx
 
-    result = run_apply(conn, cfg, n, rules, VALUES, root, fake_browser, ask=eof, say=lambda line: None)
+    result = run_apply(conn, cfg, n, rules, VALUES, fake_browser, ask=eof, say=lambda line: None)
     assert result["submitted"] == 0 and n.rows["p1"]["Status"] == {"select": {"name": "Tailored"}}
 
 

@@ -247,11 +247,11 @@ def row_job_id(page: dict) -> str:
     return prop_text(page["properties"].get("Job ID") or {})
 
 
-def _query_all(client: Client, ds_id: str, where: dict) -> list[dict]:
+def _query_all(client: Client, ds_id: str, where: dict | None) -> list[dict]:
     pages, cursor = [], None
     while True:
-        more = {"start_cursor": cursor} if cursor else {}
-        r = call(client.data_sources.query, data_source_id=ds_id, filter=where, page_size=100, **more)
+        more = ({"start_cursor": cursor} if cursor else {}) | ({"filter": where} if where else {})
+        r = call(client.data_sources.query, data_source_id=ds_id, page_size=100, **more)
         pages += r["results"]
         if not r.get("has_more"):
             return pages
@@ -276,9 +276,9 @@ def ready_rows(client: Client, ds_id: str, job_id: str | None = None) -> list[di
     """Pages with Status Tailored or Reviewed; with job_id, that one row as it is."""
     if job_id:
         return _query_all(client, ds_id, _by_job_id(job_id))
-    # Status is matched here for the reason in approved_rows; a ready row always has a Resume,
-    # so the filter only narrows the query.
-    pages = _query_all(client, ds_id, {"property": "Resume", "files": {"is_not_empty": True}})
+    # Every row, with Status matched here: approved_rows has why a select filter is not trusted, and no
+    # other filter has been checked live.
+    pages = _query_all(client, ds_id, None)
     return [p for p in pages if _select(p, "Status") in _READY]
 
 
@@ -300,11 +300,12 @@ def attach_resume(client: Client, page_id: str, pdf: Path, status: str, notes: s
     call(client.pages.update, page_id=page_id, properties=props)
 
 
-def mark_submitted(client: Client, page: dict, note: str) -> None:
-    """Sets Status Submitted and puts note in front of the row's Notes."""
-    old = prop_text(page["properties"].get("Notes") or {})
+def mark_submitted(client: Client, page_id: str, note: str) -> None:
+    """Sets Status Submitted and puts note in front of the row's Notes as they are now."""
+    # Read again: the owner may have edited Notes while the browser was open.
+    old = prop_text(call(client.pages.retrieve, page_id=page_id)["properties"].get("Notes") or {})
     props = {
         "Status": {"select": {"name": "Submitted"}},
         "Notes": {"rich_text": _text(f"{note}; {old}" if old else note)},
     }
-    call(client.pages.update, page_id=page["id"], properties=props)
+    call(client.pages.update, page_id=page_id, properties=props)

@@ -23,7 +23,7 @@ _APPLY_PAGES = (
 )
 _BOARD_ONLY = "only a job-board link: find the employer's posting and put it in Link"
 _NO_CLUSTER = "no cluster in data/jobs.db"
-_NO_PDF = "no resume PDF in output/: run tailor first"
+_NO_PDF = "no tailored PDF on record: run tailor --job {} again"
 
 
 @dataclass(frozen=True)
@@ -62,17 +62,13 @@ def _job_url(members: list[Posting], link: str, rules: Rules) -> str | None:
     return next((u for u in ats + rest if u and not _on_board(u, rules)), None)
 
 
-def _pdf(conn, cluster_id: int, job_id: str, page: dict, out_dir: Path) -> Path | None:
+def _pdf(conn, cluster_id: int) -> Path | None:
     recorded = clusters.resume(conn, cluster_id)
-    names = [f.get("name", "") for f in (page["properties"].get("Resume") or {}).get("files", [])]
-    found = [Path(recorded)] if recorded else []
-    found += [out_dir / n for n in names if n]
-    found += sorted(out_dir.glob(f"*_{job_id}.pdf"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return next((p for p in found if p.is_file()), None)
+    return Path(recorded) if recorded and Path(recorded).is_file() else None
 
 
 def find_targets(
-    conn, client, cfg: dict, rules: Rules, root: Path, job_id: str | None = None
+    conn, client, cfg: dict, rules: Rules, job_id: str | None = None
 ) -> tuple[list[Target], list[str]]:
     """Rows ready to apply (or only job_id's row), and a "J12 (Acme): why" line for each one skipped."""
     pages = ready_rows(client, cfg["notion"]["data_source_id"], job_id)
@@ -84,12 +80,12 @@ def find_targets(
         jid, company = prop_text(props.get("Job ID", {})), prop_text(props.get("Company", {}))
         members = clusters.members(conn, int(jid[1:])) if re.fullmatch(r"J\d+", jid) else []
         url = _job_url(members, (props.get("Link") or {}).get("url") or "", rules)
-        pdf = _pdf(conn, int(jid[1:]), jid, page, root / cfg["tailor"]["output_dir"]) if members else None
+        pdf = _pdf(conn, int(jid[1:])) if members else None
         why = next(
             (w for ok, w in ((members, _NO_CLUSTER), (url, _BOARD_ONLY), (pdf, _NO_PDF)) if not ok), None
         )
         if why:
-            skipped.append(f"{jid} ({company}): {why}")
+            skipped.append(f"{jid} ({company}): {why.format(jid)}")
             continue
         description = max((m.description or "" for m in members), key=len)
         title = prop_text(props.get("Title", {}))
