@@ -1,0 +1,96 @@
+"""Opens an application in the owner's Chrome and pre-fills it. The owner submits; this code never does."""
+
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from pathlib import Path
+
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import sync_playwright
+
+from jobapplier.apply.fill import (
+    FieldRules,
+    fill_page,
+    is_login,
+    missing_required,
+    plan,
+    read_fields,
+    resume_input,
+)
+from jobapplier.apply.targets import Target
+
+__all__ = ["LOGIN_NOTE", "chrome", "prepare"]
+
+LOGIN_NOTE = "Sign in or create the account yourself; JobApplier does not handle passwords."
+# Plain DOM, so it works on any page; clicking it removes it.
+_BANNER = """([head, lines]) => {
+  const b = document.createElement('div');
+  b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#fff3cd;'
+    + 'color:#222;border-bottom:2px solid #c90;padding:10px 16px;font:14px/1.4 system-ui,sans-serif;'
+    + 'cursor:pointer;max-height:40vh;overflow:auto';
+  for (const [i, line] of [head, ...lines, '(Click this note to close it.)'].entries()) {
+    const d = document.createElement('div');
+    d.textContent = line;
+    if (i === 0) d.style.fontWeight = 'bold';
+    b.append(d);
+  }
+  b.addEventListener('click', () => b.remove());
+  document.body.append(b);
+  window.scrollTo(0, 0);
+}"""
+
+
+@contextmanager
+def chrome(profile_dir: Path) -> Iterator:
+    """The installed Google Chrome (no browser download) with a profile kept between runs, so a sign-in
+    the owner does by hand is still there next time."""
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as p:
+        context = p.chromium.launch_persistent_context(
+            user_data_dir=str(profile_dir),
+            channel="chrome",
+            headless=False,
+            # Playwright turns extensions off by default; the owner's password manager must load.
+            ignore_default_args=["--disable-extensions"],
+        )
+        try:
+            yield context
+        finally:
+            context.close()
+
+
+def _banner(page, head: str, lines: list[str]) -> None:
+    page.evaluate(_BANNER, [head, lines])
+
+
+def prepare(page, target: Target, values: dict, cfg: dict, rules: FieldRules) -> dict:
+    """Opens target.url in page, uploads the resume, fills what the profile answers and shows a banner.
+
+    Returns {"filled": n, "missing": [required labels still empty], "login": bool}.
+    """
+    a = cfg["apply"]
+    timeout = a["field_timeout_seconds"] * 1000
+    page.goto(target.url, wait_until="domcontentloaded", timeout=a["load_timeout_seconds"] * 1000)
+    with suppress(PlaywrightError):  # pages with live chat or analytics never go idle; the form is there
+        page.wait_for_load_state("networkidle", timeout=a["load_timeout_seconds"] * 1000)
+    fields = read_fields(page)
+    if is_login(page.url, page.title(), fields, rules):
+        _banner(page, LOGIN_NOTE, [])
+        return {"filled": 0, "missing": [], "login": True}
+    notes = []
+    upload = resume_input(fields)
+    # Upload first: a resume parser overwrites fields filled before it runs.
+    if upload and fill_page(page, [("set_input_files", upload, str(target.pdf), "resume")], timeout):
+        notes.append(f"Uploaded {target.pdf.name}.")
+        page.wait_for_timeout(a["parser_wait_seconds"] * 1000)
+        fields = read_fields(page)
+    else:
+        notes.append(f"Could not find the resume upload: upload {target.pdf} yourself.")
+    filled = fill_page(page, plan(fields, values, rules, target.description), timeout)
+    after = read_fields(page)
+    missing = missing_required(after)
+    if not any(f["type"] not in ("file", "password") and f["visible"] for f in after):
+        notes.append("No application form on this page: open the application yourself.")
+    if missing:
+        notes.append(f"Required and still empty: {', '.join(missing)}")
+    _banner(page, f"JobApplier filled {filled} fields. Check every section, then submit yourself.", notes)
+    return {"filled": filled, "missing": missing, "login": False}

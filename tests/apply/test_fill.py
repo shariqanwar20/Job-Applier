@@ -217,7 +217,7 @@ def test_login_pages_are_found_by_password_field_url_or_title(rules):
     assert not is_login("https://jobs.lever.co/acme/1/apply", "Acme - Software Engineer", [field()], words)
 
 
-@pytest.mark.parametrize("module", ["fill.py"])
+@pytest.mark.parametrize("module", ["fill.py", "browser.py"])
 def test_the_filler_never_clicks_submits_presses_keys_or_types_passwords(module):
     src = (ROOT / "jobapplier" / "apply" / module).read_text()
     forbidden = [
