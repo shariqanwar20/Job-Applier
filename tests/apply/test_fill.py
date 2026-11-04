@@ -33,6 +33,7 @@ VALUES = {
     "work_authorization.sponsorship_now": "No",
     "work_authorization.sponsorship_future": "No",
     "relocation.willing": "Yes",
+    "relocation.cities": "Vancouver, Montreal",
     "start_date": "Two weeks after an offer",
     "salary_expectation": "Open to a fair range",
     "salary_default": "85000",
@@ -40,8 +41,13 @@ VALUES = {
 }
 
 
-SHOWN = {"seen": True, "rect": [40, 300, 200, 24], "doc": [1200, 3000], "aria_hidden": False}
-SHOWN["clipped"] = False
+SHOWN = {
+    "seen": True,
+    "rect": [40, 300, 200, 24],
+    "doc": [1200, 3000],
+    "aria_hidden": False,
+    "clipped": False,
+}
 
 
 def field(fid="1", label="", type="text", visible=True, **kw):
@@ -347,3 +353,36 @@ def test_a_visible_field_and_a_radio_with_a_styled_label_are_filled(rules):
         ("fill", "1", "https://github.com/alex"),
         ("check", "2", "Yes"),
     ]
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Emergency contact name",
+        "Name of your current manager",
+        "Phone extension",
+        "Reference full name",
+        "Who referred you?",
+        "Company",
+        "Preferred first name",
+    ],
+)
+def test_contact_manager_and_extension_fields_are_never_filled_or_overwritten(label, rules):
+    assert one(field(label=label), rules) == []
+    assert one(field(label=label, value="Someone"), rules) == []
+
+
+@pytest.mark.parametrize("label", ["Name", "Full name", "Your name", "Name*"])
+def test_bare_name_is_the_full_name_only_as_the_whole_label(label, rules):
+    assert one(field(label=label, name="_systemfield_name"), rules) == [("fill", "Alex Example")]
+
+
+def test_a_free_text_relocation_question_gets_the_cities(rules):
+    assert one(field(label="Which cities would you relocate to?"), rules) == [("fill", "Vancouver, Montreal")]
+    assert one(field(label="Are you open to relocation?"), rules) == [("fill", "Yes")]
+    yes_no = field(label="Which cities would you relocate to?", type="select", options=["Yes", "No"])
+    assert one(yes_no, rules) == [("select_option", "Yes")]
+
+
+def test_a_search_box_is_not_a_form_field(rules):
+    assert one(field(label="City", type="search"), rules) == []

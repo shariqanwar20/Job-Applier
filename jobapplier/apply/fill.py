@@ -28,10 +28,11 @@ __all__ = [
 ]
 
 _OWNED = frozenset({"name.first", "name.last", "name.full", "email", "phone"})  # must equal the profile
-_TEXT = frozenset({"text", "textarea", "email", "tel", "url", "number", "search", "date"})
+_TEXT = frozenset({"text", "textarea", "email", "tel", "url", "number", "date"})
 _HONEYPOT = re.compile(r"^hp[_-]|honeypot", re.IGNORECASE)
 _PLACEHOLDER = re.compile(r"^(select|choose|please|none selected)\b|^$")
 _RESUME = re.compile(r"\b(resume|cv)\b")
+_WHERE = re.compile(r"\b(which|what|where|cities|city|locations?)\b")
 _AMOUNT = r"\d[\d,]*(?:\.\d+)?\s?[kK]?"
 _SALARY = re.compile(rf"\$\s?{_AMOUNT}\s*(?:-|\u2013|\u2014|to)\s*\$?\s?{_AMOUNT}")  # an en or em dash too
 
@@ -123,7 +124,8 @@ _BUTTONS = (
 
 @dataclass(frozen=True)
 class FieldRules:
-    fields: tuple[tuple[re.Pattern, tuple[str, ...]], ...]  # (label pattern, profile keys to try)
+    fields: tuple[tuple[re.Pattern, tuple[str, ...], bool], ...]  # (label pattern, keys to try, whole)
+    skip: re.Pattern
     decline: re.Pattern
     login: re.Pattern
     consent: re.Pattern
@@ -135,11 +137,16 @@ class FieldRules:
     @classmethod
     def from_config(cls, apply_cfg: dict) -> "FieldRules":
         fields = tuple(
-            (words(r["patterns"]), tuple(r["key"]) if isinstance(r["key"], list) else (r["key"],))
+            (
+                words(r["patterns"]),
+                tuple(r["key"]) if isinstance(r["key"], list) else (r["key"],),
+                bool(r.get("whole")),
+            )
             for r in apply_cfg["fields"]
         )
         return cls(
             fields,
+            words(apply_cfg["skip_words"], prefix=True),
             words(apply_cfg["decline_words"]),
             words(apply_cfg["login_words"]),
             words(apply_cfg["consent_words"]),
@@ -215,6 +222,9 @@ def salary_range(description: str) -> str | None:
 
 
 def _value(keys: tuple[str, ...], f: dict, values: dict, description: str) -> str:
+    if keys == ("relocation",):
+        where = f["type"] in _TEXT and _WHERE.search(norm(_label(f)))
+        keys = ("relocation.cities",) if where else ("relocation.willing",)
     if keys == ("salary",):
         posted = salary_range(description)
         if posted:
@@ -236,6 +246,12 @@ def _choose(options: list[str], value: str, rules: FieldRules) -> str | None:
     )
 
 
+def _hits(pattern: re.Pattern, whole: bool, text: str, label: str, f: dict) -> bool:
+    if whole:
+        return bool(pattern.fullmatch(label) or pattern.fullmatch(norm(f["name"])))
+    return bool(pattern.search(text))
+
+
 def plan(fields: list[dict], values: dict, rules: FieldRules, description: str) -> list[tuple]:
     """(method, field id, argument, label) for each field to fill. Only empty fields are filled, except
     name, email and phone, which are set to the profile's. Consent checkboxes are ticked."""
@@ -250,8 +266,11 @@ def plan(fields: list[dict], values: dict, rules: FieldRules, description: str) 
             if not f["checked"] and (rules.tick_opt_ins if opt_in else rules.consent.search(text)):
                 actions.append(("check", f["id"], "", _display(f)))
             continue
-        keys = next((k for pattern, k in rules.fields if pattern.search(text)), ("skip",))
-        if keys == ("skip",):
+        own = norm(_label(f))
+        keys = next(
+            (k for pattern, k, whole in rules.fields if _hits(pattern, whole, text, own, f)), ("skip",)
+        )
+        if keys == ("skip",) or rules.skip.search(own):
             continue
         value = _value(keys, f, values, description)
         owned = keys[0] in _OWNED and f["type"] in _TEXT

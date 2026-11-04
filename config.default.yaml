@@ -105,22 +105,26 @@ apply:  # `apply` opens ready rows in Chrome and pre-fills the form; you check i
   consent_words: [consent, agree, acknowledge, privacy, terms, certify, accurate, true and complete, authorize]
   opt_in_words: [marketing, newsletter, sms, text message, promotional, job alerts, updates by email]
   tick_opt_ins: false
+  # A label with one of these word starts is never filled from profile.yaml (someone else's name or phone).
+  skip_words: [contact, manager, emergency, extension, reference, referr]
   # The option picked for a demographic question when profile.yaml has voluntary_self_id: decline.
   decline_words: [prefer not, decline, do not wish, don t wish, not to answer, not to disclose, not to say, choose not, rather not, not wish to]
   # Field label -> profile.yaml key. The first rule with a pattern in the label wins (whole words, normalized
   # like titles). key: a list tries each key in turn; skip leaves the field to you; salary is the posting's
-  # stated range, else salary_expectation in a text box, else salary_default. The yes/no questions come
-  # before the skip rule, since they may mention an employer.
+  # stated range, else salary_expectation in a text box, else salary_default; relocation is your cities
+  # for a free-text "which cities" question, else relocation.willing. whole: true matches only the whole
+  # label ("Name", not "Company name"). The yes/no questions come before the skip rule, since they may
+  # mention an employer.
   fields:
     - {patterns: [gender, pronoun, pronouns, race, racial, ethnicity, ethnic, veteran, disability, disabled, hispanic, latino, sexual orientation, transgender, lgbtq, indigenous, visible minority], key: voluntary_self_id}
     - {patterns: [in the future require, future require, future sponsorship, sponsorship in the future], key: work_authorization.sponsorship_future}
     - {patterns: [sponsorship, sponsor], key: work_authorization.sponsorship_now}
     - {patterns: [authorized to work in canada, authorised to work in canada, eligible to work in canada, entitled to work in canada, legally work in canada, right to work in canada, permitted to work in canada], key: work_authorization.canada}
-    - {patterns: [relocate, relocation], key: relocation.willing}
-    - {patterns: [company name, current company, current employer, employer, school, university, preferred name, nickname, referred, referral, referrer, reference, recruiter, hiring manager, cover letter, how did you hear], key: skip}
+    - {patterns: [relocate, relocation], key: relocation}
+    - {patterns: [company name, current company, current employer, employer, school, university, preferred name, preferred first name, nickname, referred, referral, referrer, reference, recruiter, hiring manager, cover letter, how did you hear], key: skip}
     - {patterns: [first name, given name, prenom], key: name.first}
     - {patterns: [last name, family name, surname, nom de famille], key: name.last}
-    - {patterns: [full name, legal name, your name, name], key: name.full}
+    - {patterns: [full name, legal name, your name, name], key: name.full, whole: true}
     - {patterns: [email, e mail, courriel], key: email}
     - {patterns: [phone, mobile, telephone, cell], key: phone}
     - {patterns: [linkedin], key: links.linkedin}
