@@ -477,3 +477,18 @@ def test_any_visible_submit_button_on_the_page_stops_the_walk(rules):
 def test_only_a_button_in_the_form_that_holds_the_fields_is_a_next_button(rules):
     bid, why = next_button([button("1", "Next", in_form=False)], rules)
     assert bid is None and "No Next button" in why
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "I agree to receive emails about jobs at Acme",
+        "I consent to being contacted about future opportunities",
+        "I agree to receive communications from Acme and its partners",
+        "I consent to Acme retaining my data for future openings",
+        "I agree to join the Acme talent community",
+        "I agree to SMS and WhatsApp updates",
+    ],
+)
+def test_consent_words_never_tick_a_marketing_or_contact_opt_in(label, rules):
+    assert plan([field("1", label, type="checkbox", value="on")], VALUES, rules, "") == []
