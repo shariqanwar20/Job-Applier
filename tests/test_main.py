@@ -1,11 +1,15 @@
 import logging
 import shutil
+import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 import pytest
+from pypdf import PdfReader
 
 from jobapplier import __main__ as app
+from jobapplier.core import clusters
 from jobapplier.mail.gmail import MailError
 from jobapplier.notion.client import NotionError, call, make_client
 from jobapplier.system import launchd
@@ -218,3 +222,85 @@ def test_discover_uses_mail_when_the_token_file_exists(home, monkeypatch):
     assert app.main(["discover"]) == 0
     assert made == [("data/gmail_token.json", root)] and mail.calls == ["affirm"]
     assert n.rows["page-1"]["Flags"]["multi_select"] == [{"name": "Applied before"}]
+
+
+FAKE_CLAUDE = """#!{python}
+import json, sys
+prompt = sys.stdin.read()
+assert "humanizer" in prompt and "--json-schema" in sys.argv
+items = [{{"id": "exp1.b1", "text": "Built a Go REST API that served 3 clinics"}}, {{"id": "exp1.b2"}}]
+print(json.dumps({{"type": "result", "subtype": "success", "is_error": False, "total_cost_usd": 0.01,
+                  "structured_output": {{"sections": [{{"section": "Experience", "items": items}}]}}}}))
+"""
+
+FAKE_TECTONIC = """#!{python}
+import pathlib, sys
+from pypdf import PdfWriter
+src = pathlib.Path(sys.argv[-1])
+assert "Built a Go REST API" in src.read_text()
+w = PdfWriter()
+w.add_blank_page(612, 792)
+with open(pathlib.Path(sys.argv[sys.argv.index("--outdir") + 1]) / (src.stem + ".pdf"), "wb") as f:
+    w.write(f)
+"""
+
+
+def _script(path, body):
+    path.write_text(body.format(python=sys.executable))
+    path.chmod(0o755)
+    return path
+
+
+def test_tailor_one_job_end_to_end(home, monkeypatch, rules):
+    root, notes = home
+    claude = _script(root / "fake_claude", FAKE_CLAUDE)
+    tectonic = _script(root / "fake_tectonic", FAKE_TECTONIC)
+    (root / "config.yaml").write_text(
+        "notion: {database_id: db1, data_source_id: ds1}\n"
+        "profile: {name: Alex Example}\n"
+        f"llm: {{claude: {claude}}}\n"
+        f"tailor: {{tectonic: {tectonic}}}\n"
+    )
+    (root / "resume").mkdir()
+    shutil.copy(
+        Path(app.__file__).parents[1] / "resume" / "example.master.tex", root / "resume" / "master.tex"
+    )
+    (root / "data").mkdir()
+    conn = clusters.connect(str(root / "data" / "jobs.db"))
+    clusters.assign(conn, AFFIRM_INDEED, rules, datetime(2026, 11, 1, tzinfo=UTC), False)
+    conn.commit()
+    n = FakeNotion()
+    n.rows = {
+        "p1": {
+            "Title": {"title": [{"text": {"content": "Software Engineer II, Full Stack"}}]},
+            "Company": {"rich_text": [{"text": {"content": "Affirm"}}]},
+            "Job ID": {"rich_text": [{"text": {"content": "J1"}}]},
+            "Decision": {"select": {"name": "New"}},
+            "Status": {"select": {"name": "New"}},
+        }
+    }
+    monkeypatch.setattr(app, "make_client", lambda token: n)
+    assert app.main(["tailor", "--job", "J1"]) == 0
+    name = "Alex_Example_Affirm_Software_Engineer_II_Full_Stack.pdf"
+    assert len(PdfReader(root / "output" / name).pages) == 1
+    assert n.rows["p1"]["Status"] == {"select": {"name": "Tailored"}}
+    assert n.rows["p1"]["Resume"]["files"][0]["name"] == name
+    assert n.uploads["upload-1"][1].startswith(b"%PDF") and notes == []
+
+
+def test_tailor_reports_row_errors(home, monkeypatch):
+    root, notes = home
+    set_ids(root)
+    monkeypatch.setattr(app, "make_client", lambda token: FakeNotion())
+    assert app.main(["tailor", "--job", "J1"]) == 1
+    assert notes and "profile.name" in notes[0][1]
+
+
+def test_tailor_returns_zero_when_locked(home, monkeypatch):
+    root, notes = home
+    set_ids(root)
+    monkeypatch.setattr(app, "make_client", lambda token: pytest.fail("must not start work"))
+    (root / "data").mkdir()
+    with locked(str(root / "data" / "run.lock")):
+        assert app.main(["tailor"]) == 0
+    assert notes == []

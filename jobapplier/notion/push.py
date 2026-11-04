@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from pathlib import Path
 
 from notion_client import Client
 
@@ -7,7 +8,16 @@ from jobapplier.core import clusters
 from jobapplier.mail.gmail import MailError
 from jobapplier.notion.client import NotionError, call
 
-__all__ = ["create_database", "prune", "push", "set_status", "style_database"]
+__all__ = [
+    "approved_rows",
+    "attach_resume",
+    "create_database",
+    "ensure_tailor_schema",
+    "prune",
+    "push",
+    "set_status",
+    "style_database",
+]
 
 _log = logging.getLogger("jobapplier")
 
@@ -37,8 +47,11 @@ _SCHEMA = {
     "Link": {"url": {}},
     "Job ID": {"rich_text": {}},
     "Decision": _options("New", "Approve", "Approve + review", "Skip"),
-    "Status": _options("New"),
+    "Status": _options("New", "Tailored", "Needs review"),
+    "Resume": {"files": {}},
+    "Notes": {"rich_text": {}},
 }
+_APPROVED = ("Approve", "Approve + review")
 
 
 def _title(text: str) -> list[dict]:
@@ -191,3 +204,57 @@ def prune(conn, client: Client, rules, now: datetime) -> tuple[int, list[str]]:
 
 def set_status(client: Client, database_id: str, text: str) -> None:
     call(client.databases.update, database_id=database_id, description=[{"text": {"content": text[:2000]}}])
+
+
+def ensure_tailor_schema(client: Client, ds_id: str) -> None:
+    """Adds Resume, Notes and the tailor Status options to a database made before them. Never removes."""
+    props = call(client.data_sources.retrieve, data_source_id=ds_id)["properties"]
+    add = {name: _SCHEMA[name] for name in ("Resume", "Notes") if name not in props}
+    status = props.get("Status", {"select": {"options": []}})
+    if "select" not in status:  # rewriting it as a select would change the owner's property type
+        raise NotionError("the Status property must be a select")
+    # An update replaces the whole option list, so the existing options go back in unchanged.
+    options = [{k: o[k] for k in ("id", "name", "color") if k in o} for o in status["select"]["options"]]
+    missing = [
+        o for o in _SCHEMA["Status"]["select"]["options"] if o["name"] not in {x["name"] for x in options}
+    ]
+    if missing:
+        add["Status"] = {"select": {"options": options + missing}}
+    if add:
+        call(client.data_sources.update, data_source_id=ds_id, properties=add)
+
+
+def approved_rows(client: Client, ds_id: str, job_id: str | None = None) -> list[dict]:
+    """Pages with Decision Approve or Approve + review and Status New; with job_id, that one row as it is."""
+    if job_id:
+        where = {"property": "Job ID", "rich_text": {"equals": job_id}}
+    else:
+        decided = [{"property": "Decision", "select": {"equals": d}} for d in _APPROVED]
+        where = {"and": [{"or": decided}, {"property": "Status", "select": {"equals": "New"}}]}
+    pages, cursor = [], None
+    while True:
+        more = {"start_cursor": cursor} if cursor else {}
+        r = call(client.data_sources.query, data_source_id=ds_id, filter=where, page_size=100, **more)
+        pages += r["results"]
+        if not r.get("has_more"):
+            return pages
+        cursor = r["next_cursor"]
+
+
+def attach_resume(client: Client, page_id: str, pdf: Path, status: str, notes: str) -> None:
+    """Uploads pdf to the row's Resume property and sets Status, and Notes when there are notes."""
+    up = call(
+        client.file_uploads.create, mode="single_part", filename=pdf.name, content_type="application/pdf"
+    )
+    call(
+        client.file_uploads.send,
+        file_upload_id=up["id"],
+        file=(pdf.name, pdf.read_bytes(), "application/pdf"),
+    )
+    props = {
+        "Resume": {"files": [{"type": "file_upload", "file_upload": {"id": up["id"]}, "name": pdf.name}]},
+        "Status": {"select": {"name": status}},
+    }
+    if notes:
+        props["Notes"] = {"rich_text": _text(notes)}
+    call(client.pages.update, page_id=page_id, properties=props)
