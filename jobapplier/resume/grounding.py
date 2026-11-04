@@ -62,7 +62,8 @@ def grounding_problems(text: str, source: str, cfg: dict, job_text: str = "") ->
         if n not in _numbers(source)
     ]
     src = _stems(_words(source)) | _stems(_tokens(source))
-    known = src | _stems(cfg["allow_words"])
+    # common words too: a second sentence may start with "It" or "They"
+    known = src | _stems(cfg["allow_words"]) | _stems(cfg["common_words"])
     flagged = set()
     for t in dict.fromkeys(_tokens(text)):
         if _TECH_MARK.search(t) and _stem(t) not in known:

@@ -145,3 +145,12 @@ def test_inflating_verbs_match_by_stem_not_by_listed_form(t):
     narrow = {**t, "inflating_verbs": ["owned"]}
     problems = grounding_problems("Owning the REST API in Go", "Built the REST API in Go", narrow)
     assert problems and "overstates" in " ".join(problems)
+
+
+def test_a_second_sentence_may_start_with_a_pronoun(t):
+    assert (
+        grounding_problems(
+            "Built the REST API in Go. It served clinics", "Built the REST API in Go for clinics", t
+        )
+        == []
+    )
