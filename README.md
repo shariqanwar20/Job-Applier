@@ -1,6 +1,6 @@
 # JobApplier
 
-Every two hours, JobApplier pulls fresh software developer postings in Canada from FreeHire, Indeed and LinkedIn, drops duplicates and title-filtered noise, ranks what is left (new grad first, then by city), and adds new rows to a Notion database. You review the rows in Notion. `tailor` makes a one-page resume PDF for each row you approve; the apply steps are not built yet.
+Every two hours, JobApplier pulls fresh software developer postings in Canada from FreeHire, Indeed and LinkedIn, drops duplicates and title-filtered noise, ranks what is left (new grad first, then by city), and adds new rows to a Notion database. You review the rows in Notion. Every 30 minutes it also makes a one-page tailored resume PDF for each row you approve and attaches it to the row; you apply with it yourself (the apply steps are not built yet).
 
 Sources: the FreeHire public API, and LinkedIn and Indeed through [python-jobspy](https://github.com/speedyapply/JobSpy) (list pages only, throttled with a delay between requests).
 
@@ -130,7 +130,7 @@ uv run python -m jobapplier discover
 
 Run it twice to check de-duplication: the second run should report no new rows. The database description in Notion shows the time and errors of the last run.
 
-## Run every two hours
+## Run on a schedule
 
 Run this from the repo root. It writes `~/Library/LaunchAgents/local.jobapplier.plist` with your repo path and the path to uv, and loads it as a LaunchAgent:
 
@@ -138,7 +138,7 @@ Run this from the repo root. It writes `~/Library/LaunchAgents/local.jobapplier.
 uv run python -m jobapplier install-agent
 ```
 
-It runs once when loaded, then every two hours; a run missed while the Mac slept happens on wake. Running it again reinstalls the agent. To remove it:
+The agent runs `python -m jobapplier run` once when loaded, then every 30 minutes: discover when the last discover is older than `schedule.discover_every_minutes` (120), then tailor approved rows. A run missed while the Mac slept happens on wake. Logs go to `logs/jobapplier.log`. Running it again reinstalls the agent. To remove it:
 
 ```
 uv run python -m jobapplier uninstall-agent
