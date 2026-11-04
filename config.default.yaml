@@ -50,3 +50,7 @@ mail:  # read-only Gmail (OAuth scope gmail.readonly); on when the token file ex
   applied_lookback_days: 365    # how far back "applied before" looks
   # A message whose subject or start of body has one of these (whole words) counts as an application confirmation.
   applied_phrases: [thank you for applying, thanks for applying, application received, we received your application, your application to, application submitted]
+llm:  # headless Claude Code calls (`claude -p`) on your subscription
+  claude: /opt/homebrew/bin/claude
+  timeout_seconds: 300
+  models: {tailor: claude-sonnet-5-5, classify: claude-haiku-5-5}
