@@ -457,9 +457,11 @@ def test_the_only_check_is_in_fill_page_for_a_planned_radio_or_consent_box():
         {"text": "Next", "title": "Send application"},
         {"text": "Next", "labelledby": "Finish and apply"},
         {"text": "Continue with Google"},
+        {"text": "Next one two three four five six"},  # more than apply.next_max_extra_words
+        {"text": "Continue", "aria": "Continue to the photo gallery"},  # a deny word in any source
     ],
 )
-def test_is_next_needs_an_exact_visible_next_name_and_no_submit_or_sign_in_word_anywhere(names, rules):
+def test_is_next_refuses_other_next_buttons_and_any_submit_or_sign_in_word_anywhere(names, rules):
     assert not rules.is_next(button("1", **{"text": "Next", **names}))
 
 
@@ -467,12 +469,17 @@ def test_is_next_needs_an_exact_visible_next_name_and_no_submit_or_sign_in_word_
     "names",
     [
         {"text": "Next"},
+        {"text": "Next: Experience"},
+        {"text": "Continue to step 3"},
+        {"text": "Save & Continue"},
         {"text": "  Save and Continue "},
         {"text": "Next step", "aria": "Go to the next step"},
+        {"text": "Continue application"},
+        {"text": "Proceed to questions"},
         {"tag": "input", "text": "", "value": "Continue"},
     ],
 )
-def test_is_next_accepts_a_plain_next_button(names, rules):
+def test_is_next_accepts_a_next_button_with_a_few_more_words(names, rules):
     assert rules.is_next(button("1", **names))
 
 

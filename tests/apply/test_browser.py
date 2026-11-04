@@ -226,6 +226,41 @@ def test_click_next_refuses_anything_but_a_next_button(names, field_rules):
     assert page.clicks == []
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Next: Experience",
+        "Continue to step 3",
+        "Save & Continue",
+        "Next step",
+        "Continue application",
+        "Proceed to questions",
+    ],
+)
+def test_click_next_clicks_these_names(text, field_rules):
+    page = one_button(text=text)
+    browser._click_next(page, "b1", field_rules, 1000)
+    assert page.clicks == [text]
+
+
+@pytest.mark.parametrize(
+    "text", ["Next month", "Next slide", "Show next 10 jobs", "Continue reading", "Proceed to payment"]
+)
+def test_click_next_refuses_these_names(text, field_rules):
+    page = one_button(text=text)
+    with pytest.raises(ClickRefusedError):
+        browser._click_next(page, "b1", field_rules, 1000)
+    assert page.clicks == []
+
+
+def test_the_click_binding_rejects_a_submit_word_that_appears_after_the_check(field_rules):
+    # The binding regex is what Playwright re-checks on every retry, after the name check.
+    assert field_rules.next_text.search("Next: Experience")
+    assert not field_rules.next_text.search("Continue and submit")
+    assert not field_rules.next_text.search("Next month to apply")
+    assert not field_rules.next_text.search("Show next jobs")
+
+
 def test_click_next_clicks_a_next_button_bound_to_its_name(field_rules):
     page = one_button(text="Save and Continue")
     browser._click_next(page, "b1", field_rules, 1000)

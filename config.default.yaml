@@ -91,15 +91,18 @@ apply:  # `apply` opens ready rows in Chrome and pre-fills the form; you check i
   field_timeout_seconds: 3         # per field; a field that takes longer is left for you
   # A page whose URL or title has one of these (whole words), or that shows a password field, is left for you.
   login_words: [sign in, signin, log in, login, create account, create an account, sign up, signup, register]
-  # Multi-page forms: after filling a page, apply clicks the form's button whose visible text is exactly one
-  # of next_words (Next, Save and Continue; not "Next month"), when no source of its name (aria-label,
-  # labelled-by text, text, value, title) has a submit_words, login_words or sign_in_button_words word. Then
-  # it fills the next page, up to max_pages pages. It stops (and leaves the page to you) when any visible
-  # button on the page has a submit word, a required field is still empty, a sign-in page appears, there is
-  # no next button, or the page did not change after the click (a validation error).
+  # Multi-page forms: after filling a page, apply clicks the form's button whose visible text starts with one
+  # of next_words and has at most next_max_extra_words more words ("Next: Experience", "Continue to step 3"),
+  # none of them in next_deny_words ("Next month", "Continue reading"). No source of its name (aria-label,
+  # labelled-by text, text, value, title) may have a submit_words, login_words or sign_in_button_words
+  # word. Then it fills the next page, up to max_pages pages. It stops (and leaves the page to you) when any
+  # visible button on the page has a submit word, a required field is still empty, a sign-in page appears,
+  # there is no next button, or the page did not change after the click (a validation error).
   max_pages: 8
   next_wait_seconds: 2             # after clicking next, for the new page to draw
-  next_words: [next, next step, continue, save and continue, proceed, save and next]
+  next_words: [next, continue, proceed, save and continue, save and next, save & continue, go to next]
+  next_max_extra_words: 5
+  next_deny_words: [month, year, week, day, slide, image, photo, video, page, pages, results, jobs, article, reading, story, payment, checkout, cart, tour, tip]
   submit_words: [submit, apply, send, finish, complete, confirm, done, review and submit, submit application]
   sign_in_button_words: [continue with, sign in with, log in with]  # "Continue with Google" signs you in
   # A checkbox whose label has one of consent_words is ticked (terms, privacy, "the above is accurate").

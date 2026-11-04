@@ -143,6 +143,11 @@ _BUTTONS = (
 )
 
 
+def _raw(phrases: list[str]) -> str:
+    """An alternation matching phrases in raw page text: "save & continue" also matches "Save & Continue"."""
+    return "|".join(r"\W+".join(map(re.escape, norm(p).split())) for p in phrases if norm(p))
+
+
 @dataclass(frozen=True)
 class FieldRules:
     fields: tuple[tuple[re.Pattern, tuple[str, ...], bool], ...]  # (label pattern, keys to try, whole)
@@ -152,13 +157,17 @@ class FieldRules:
     consent: re.Pattern
     opt_in: re.Pattern
     tick_opt_ins: bool
-    next_names: frozenset[str]  # a next button's whole visible text, normalized
-    next_text: re.Pattern  # the same, for binding the click to the text on screen
+    next_start: re.Pattern  # a next phrase at the start of a normalized visible name
+    next_max_extra: int
+    next_deny: frozenset[str]
+    next_text: re.Pattern  # for binding the click to the raw text on screen
     submit: re.Pattern
     sign_in_button: re.Pattern
 
     @classmethod
     def from_config(cls, apply_cfg: dict) -> "FieldRules":
+        nexts = sorted({n for n in map(norm, apply_cfg["next_words"]) if n}, key=len, reverse=True)
+        never = _raw(apply_cfg["submit_words"] + apply_cfg["next_deny_words"])
         fields = tuple(
             (
                 words(r["patterns"]),
@@ -175,12 +184,12 @@ class FieldRules:
             words(apply_cfg["consent_words"]),
             words(apply_cfg["opt_in_words"]),
             bool(apply_cfg["tick_opt_ins"]),
-            frozenset(map(norm, apply_cfg["next_words"])),
+            re.compile(r"^(" + "|".join(map(re.escape, nexts)) + r")\b"),
+            int(apply_cfg["next_max_extra_words"]),
+            frozenset(map(norm, apply_cfg["next_deny_words"])),
             re.compile(
-                r"^\s*("
-                + "|".join(r"\s+".join(map(re.escape, w.split())) for w in apply_cfg["next_words"])
-                + r")\s*$",
-                re.IGNORECASE,
+                rf"^(?!.*\b({never})\b)\W*({_raw(nexts)})\b",
+                re.IGNORECASE | re.DOTALL,
             ),
             words(apply_cfg["submit_words"]),
             words(apply_cfg["sign_in_button_words"]),
@@ -190,14 +199,18 @@ class FieldRules:
         return any(self.submit.search(norm(button[k])) for k in _SOURCES)
 
     def is_next(self, button: dict) -> bool:
-        """A next-step button: its whole visible text is a next word, and no source of its name has a submit
-        or sign-in word."""
+        """A next-step button: its visible text starts with a next phrase and has at most next_max_extra more
+        words; no source of its name has a submit, sign-in or deny word."""
         names = [norm(button[k]) for k in _SOURCES]
         if self.is_submit_button(button) or any(
             self.login.search(n) or self.sign_in_button.search(n) for n in names
         ):
             return False
-        return norm(button["value"] if button["tag"] == "input" else button["text"]) in self.next_names
+        if any(w in self.next_deny for n in names for w in n.split()):
+            return False
+        visible = norm(button["value"] if button["tag"] == "input" else button["text"])
+        start = self.next_start.match(visible)
+        return bool(start) and len(visible[start.end() :].split()) <= self.next_max_extra
 
 
 def group_radios(raw: list[dict]) -> list[dict]:
