@@ -61,8 +61,26 @@ def test_parse_reports_an_unknown_word_after_the_id():
         parse("\\resumeItem{a} % id:a requred\n")
 
 
-def test_an_escaped_percent_is_not_a_marker():
-    assert parse("\\resumeItem{40\\% id:x}\n") == []
+@pytest.mark.parametrize(
+    "line",
+    [
+        r"\resumeItem{a} \\% id:x",  # \\ then %: the marker is glued to a line break
+        r"\item Alpha % note % id:c",  # the marker is not the first comment
+        r"\resumeItem{40\% id:x}",  # an escaped percent
+    ],
+)
+def test_a_marker_that_is_not_the_first_comment_is_an_error(line):
+    with pytest.raises(MasterError, match="line 2"):
+        parse("\\section{X}\n" + line + "\n")
+
+
+def test_a_line_whose_text_has_no_words_is_an_error():
+    with pytest.raises(MasterError, match=r"line 1.*no words"):
+        parse("\\textbf{Languages}{: Python, Go} \\\\ % id:s\n")
+
+
+def test_a_comment_only_line_may_mention_the_marker():
+    assert parse("% end each line with % id:<id>\n") == []
 
 
 def test_plain_drops_latex():

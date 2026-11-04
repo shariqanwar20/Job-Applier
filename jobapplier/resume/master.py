@@ -7,6 +7,7 @@ __all__ = ["Item", "MasterError", "parse", "plain", "render"]
 
 _COMMENT = re.compile(r"(?<!\\)%")
 _MARKER = re.compile(r"\s*id:(\S*)(.*)$")
+_STRAY_MARKER = re.compile(r"%\s*id:")
 _SECTION = re.compile(r"\\section\*?\{([^}]*)\}")
 _LEAD_COMMAND = re.compile(r"\s*(?:\\[A-Za-z]+\*?\s*)?")
 
@@ -53,7 +54,14 @@ def parse(tex: str) -> list[Item]:
         if s := _SECTION.search(code):
             section = s.group(1)
         m = _MARKER.match(comment)
-        if not (m and code.strip()):  # a comment-only line may mention the marker
+        if not code.strip():  # a comment-only line may mention the marker
+            continue
+        if not m:
+            if _STRAY_MARKER.search(line):  # silently skipping it would drop the line from tailoring
+                raise MasterError(
+                    f"master.tex line {n}: the '% id:' marker must be the line's first comment,"
+                    " after a space (not right after \\\\ or \\%)"
+                )
             continue
         code = code.rstrip()
         item_id, rest = m.group(1), m.group(2).strip()
@@ -65,8 +73,11 @@ def parse(tex: str) -> list[Item]:
             prefix, text, suffix = _split(code)
         except ValueError:
             raise MasterError(f"master.tex line {n}: unbalanced braces") from None
-        if not text.strip():
-            raise MasterError(f"master.tex line {n}: id {item_id} has no text")
+        if not re.search(r"[A-Za-z]", plain(text)):
+            raise MasterError(
+                f"master.tex line {n}: id {item_id} has no words to tailor; put them in the line's"
+                " last {...}, or after its last }, with nothing (such as \\\\) after them"
+            )
         seen[item_id] = n
         items.append(Item(item_id, section, text, rest == "required", n, prefix, suffix))
     return items
