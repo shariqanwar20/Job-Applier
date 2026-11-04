@@ -9,22 +9,7 @@ from jobapplier.models import Posting
 __all__ = ["assign", "connect", "mark_pushed", "members", "pushable", "summarize", "total"]
 
 _ATS = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby", "workday": "Workday"}
-_COMPANY_NOISE = {
-    "inc",
-    "ltd",
-    "llc",
-    "corp",
-    "corporation",
-    "company",
-    "co",
-    "group",
-    "plc",
-    "limited",
-    "sa",
-    "the",
-    "of",
-    "and",
-}
+_PARENS = re.compile(r"\([^)]*\)")
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS clusters (
   id INTEGER PRIMARY KEY, key TEXT NOT NULL, first_seen TEXT NOT NULL,
@@ -49,12 +34,16 @@ def connect(path: str) -> sqlite3.Connection:
     return conn
 
 
-def _cluster_key(company: str, title: str) -> str:
-    words = [w for w in norm(company).split() if w not in _COMPANY_NOISE]
-    return " ".join(words) + "|" + norm(re.sub(r"\([^)]*\)", " ", title))
+def _cluster_key(company: str, title: str, rules: Rules) -> str:
+    # A parenthetical is a country or an abbreviation of the name ("(AWS)"): the same employer varies there.
+    words = [w for w in norm(_PARENS.sub(" ", company)).split() if w not in rules.company_noise]
+    name = " ".join(words)
+    return rules.company_aliases.get(name, name) + "|" + norm(_PARENS.sub(" ", title))
 
 
-def assign(conn: sqlite3.Connection, p: Posting, now: datetime, include_reposts: bool) -> int | None:
+def assign(
+    conn: sqlite3.Connection, p: Posting, rules: Rules, now: datetime, include_reposts: bool
+) -> int | None:
     """Store p in a cluster and return its id; None if this (source, source_id) is already stored."""
     if conn.execute(
         "SELECT 1 FROM postings WHERE source = ? AND source_id = ?", (p.source, p.source_id)
@@ -62,7 +51,7 @@ def assign(conn: sqlite3.Connection, p: Posting, now: datetime, include_reposts:
         return None
     # Windows and the repost check anchor on the cluster's first_seen, not its latest member's,
     # so a long-running job can't keep extending its own window.
-    key, stamp, repost, cid = _cluster_key(p.company, p.title), now.isoformat(), 0, None
+    key, stamp, repost, cid = _cluster_key(p.company, p.title, rules), now.isoformat(), 0, None
     if p.identity:
         row = conn.execute(
             "SELECT c.id, c.first_seen FROM postings x JOIN clusters c ON c.id = x.cluster_id"

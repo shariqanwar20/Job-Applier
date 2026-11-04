@@ -9,6 +9,18 @@ rules:
   blocked_company_types: [outstaff, agency]
   # Recruiting and staffing companies, dropped (whole words in the company name).
   blocked_companies: [jobgether, turing, placements24, vhr professional services, techedin, smart it frame, sra group, epsilon solutions, artech, lancesoft, mitchell martin, hour consulting, planit search, tekrek, flexton, axelon, aptask, alltech consulting, s i systems, tech talent international, analyst technical, lighthouse technology, randstad, robert half, teksystems, insight global, adecco, hays, kforce, cybercoders, dice, apex systems, pacer group, gurulink, compunnel, pentasia, lorven technologies, ztek consulting, tekgence, centraprise, viva tech solutions, quantum world technologies, stellar software solutions, blutic, code17tek, digitalogia, isteer, envision technology solutions, techdoquest, grand software solutions, apptad, astra north infoteck, sportstechjobs, it connex, belmont lavan, enterprise solutions inc, confidential, same as legal business name, recruiting, recruitment, staffing, consultancy, talent]
+  # Words dropped from a company name before comparing two postings for the same employer.
+  company_noise: [inc, ltd, llc, corp, corporation, company, co, group, plc, limited, sa, the, of, and, canada, bank, financial, technologies, technology, du, des, de, la, le, et]
+  # Employer names that differ beyond the noise words: normalized name (after noise words and any (...) text are dropped) -> the name to compare as.
+  company_aliases:
+    toronto dominion: td
+    amazon web services: amazon
+    aws: amazon
+    manulife john hancock: manulife
+    fidelity investments: fidelity
+    salesforce com: salesforce
+    110 salesforce com: salesforce
+    banque nationale: national
   # Intern/co-op titles are kept only at a notable company.
   intern: [intern, internship, co op, coop, stagiaire, stage]
   # Title words that rank a posting 1 (new grad / junior).

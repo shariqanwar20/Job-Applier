@@ -25,7 +25,7 @@ def run_discover(conn, cfg: dict, rules: Rules, sources: list, client, now: date
             try:
                 if keep(p, rules):
                     p.identity = posting_identity(p.url, rules)
-                    clusters.assign(conn, p, now, cfg["include_reposts"])
+                    clusters.assign(conn, p, rules, now, cfg["include_reposts"])
             except Exception as exc:  # e.g. a malformed URL: skip that posting, keep the run
                 _log.warning("skipping %s %s: %s", p.source, p.source_id, exc)
                 skipped, first_skip = skipped + 1, first_skip or exc

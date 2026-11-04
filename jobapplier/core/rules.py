@@ -31,6 +31,8 @@ class Rules:
     aggregators: tuple[str, ...]
     blocked_types: frozenset[str]
     blocked_companies: re.Pattern
+    company_noise: frozenset[str]
+    company_aliases: dict[str, str]
     source_order: tuple[str, ...]
 
     @classmethod
@@ -46,6 +48,8 @@ class Rules:
             aggregators=tuple(r["aggregator_hosts"]),
             blocked_types=frozenset(map(norm, r["blocked_company_types"])),
             blocked_companies=_words(r["blocked_companies"]),
+            company_noise=frozenset(w for word in r["company_noise"] for w in norm(word).split()),
+            company_aliases={norm(k): norm(v) for k, v in r["company_aliases"].items()},
             source_order=tuple(cfg["sources"]),
         )
 

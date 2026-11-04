@@ -120,7 +120,7 @@ def seed(rules, count=3):
             "Toronto, ON",
             f"https://boards.greenhouse.io/co{i}/jobs/{i}",
         )
-        assert assign(conn, p, NOW, False) == i
+        assert assign(conn, p, rules, NOW, False) == i
     conn.commit()
     return conn
 
