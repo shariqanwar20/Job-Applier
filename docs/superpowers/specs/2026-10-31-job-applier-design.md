@@ -369,3 +369,19 @@ A ponytail-style review cut mechanisms that real usage has not yet shown we need
 18. §7 Notion views are set up by hand once (the API does not manage views). Notion API version `2025-09-03` (data-source endpoints).
 
 Slice 1 builds: FreeHire + Indeed + LinkedIn (list only, 4–8 s jitter, stop on first 429) → title/intern filters → identity → 7-day clustering with city preference → `regions=none` rule → repost rule → rank (regex, then `enrichment.seniority`, else 3) → create-only Notion push → status in the database description → osascript notification on error → one LaunchAgent with an `fcntl` lock and `caffeinate -i`. Not in slice 1: Notion→SQLite pull sync, any state past `new`, `claude -p`, usage tracking, LinkedIn detail fetch, page-body uploads, mail, watchdog.
+
+## 19. Decisions made while building slice 1 (owner, 2026-11-01)
+These override §3, §12, §12a and §13 where they disagree.
+- **Config:** tunables (title words, intern words, rank-1 words, city tiers, notable companies, aggregator hosts, each source's terms/location/country/categories/delays, lookback) live in `config.default.yaml`. Users override in a git-ignored `config.yaml`, deep-merged: dicts merge, lists replace, nulls are ignored. The project will be released publicly, so no personal values are committed.
+- **Secrets:** `.env` (git-ignored; `.env.example` committed) instead of macOS Keychain, for the Notion token and later tokens.
+- **Layout:** one entry point, `python -m jobapplier <discover|notion-setup|install-agent|uninstall-agent>` (`jobapplier/__main__.py`). The package folders are:
+  - `core/rules.py`, `core/identity.py`, `core/rank.py`, and `core/clusters.py`, which holds all SQL.
+  - `sources/`: one `Source` ABC and a class per source.
+  - `notion/`: client and push.
+  - `system/`: lock, notify, launchd.
+  - `pipelines/discover.py`.
+  - `http.py`.
+- **API callers:** Notion uses the `notion-client` SDK (3.1.0, API `2025-09-03`). Plain HTTP sources share `http.ApiClient` (requests + urllib3 `Retry`).
+- **Standard:** PEP 8 naming enforced with ruff. Each module's public API is in `__all__`, and module-private names start with `_`. Tests mirror the package folders.
+- **Scheduling:** `install-agent` writes the LaunchAgent with `plistlib` (every 2 h + RunAtLoad). There is no hand-edited plist.
+- **Schema migrations:** not adopted yet (owner: skip).

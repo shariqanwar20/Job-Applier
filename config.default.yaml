@@ -1,0 +1,52 @@
+lookback_days: 3        # every source's freshness window
+include_reposts: false  # true: a reposted job (same ATS id, >48h after first seen) gets its own flagged row
+rules:
+  # Whole words/phrases matched on the normalized title (lowercase, ASCII, punctuation -> space).
+  include: [developer, engineer, programmer, software, full stack, fullstack, back end, backend, front end, frontend, sde, mobile, developpeur, developpeuse, ingenieur logiciel, ingenieure logiciel]
+  # Seniority words that drop a title.
+  exclude: [senior, sr, staff, principal, lead, manager, director, architect, head of, cnc, welding, robot programmer, plc, machining, machinist, job developer, community developer, recreation, elders, cad, instructor, teacher, power system, cashier, checkout, team associate, store associate]
+  # Postings whose FreeHire company type is listed are dropped.
+  blocked_company_types: [outstaff, agency]
+  # Recruiting and staffing companies, dropped (whole words in the company name).
+  blocked_companies: [jobgether, turing, placements24, vhr professional services, techedin, smart it frame, sra group, epsilon solutions, artech, lancesoft, mitchell martin, hour consulting, planit search, tekrek, flexton, axelon, aptask, alltech consulting, s i systems, tech talent international, analyst technical, lighthouse technology, randstad, robert half, teksystems, insight global, adecco, hays, kforce, cybercoders, dice, apex systems, pacer group, gurulink, compunnel, pentasia, lorven technologies, ztek consulting, tekgence, centraprise, viva tech solutions, quantum world technologies, stellar software solutions, blutic, code17tek, digitalogia, isteer, envision technology solutions, techdoquest, grand software solutions, apptad, astra north infoteck, sportstechjobs, it connex, belmont lavan, enterprise solutions inc, confidential, same as legal business name, recruiting, recruitment, staffing, consultancy, talent]
+  # Words dropped from a company name before comparing two postings for the same employer.
+  company_noise: [inc, ltd, llc, corp, corporation, company, co, group, plc, limited, sa, the, of, and, canada, bank, financial, technologies, technology, du, des, de, la, le, et]
+  # Employer names that differ beyond the noise words: normalized name (after noise words and any (...) text are dropped) -> the name to compare as.
+  company_aliases:
+    toronto dominion: td
+    amazon web services: amazon
+    aws: amazon
+    manulife john hancock: manulife
+    fidelity investments: fidelity
+    salesforce com: salesforce
+    110 salesforce com: salesforce
+    banque nationale: national
+  # Intern/co-op titles are kept only at a notable company.
+  intern: [intern, internship, co op, coop, stagiaire, stage]
+  # Title words that rank a posting 1 (new grad / junior).
+  rank1_title: [new grad, graduate, entry level, junior, jr, associate]
+  # Location preference tiers, best first; remote and everything else rank after the last tier.
+  cities:
+    - [toronto, mississauga, markham, brampton, vaughan, oakville, richmond hill, north york, etobicoke, scarborough]
+    - [vancouver, burnaby]
+    - [montreal]
+  # Companies whose intern/co-op roles are worth keeping (whole words in the company name).
+  notable_companies: [google, amazon, microsoft, apple, meta, netflix, nvidia, shopify, stripe, uber, airbnb, databricks, snowflake, salesforce, adobe, intel, amd, ibm, oracle, cisco, atlassian, cohere, wealthsimple, rbc, td, scotiabank, bmo, cibc, disney, bloomberg, jane street, citadel, two sigma, palantir, openai, anthropic]
+  # URL hosts that are job boards, not the employer's own page (substring match): no stable identity.
+  aggregator_hosts: [whatjobs.com, adzuna., linkedin.com, indeed.com, torre.ai]
+# Fetch order; also the tie-break priority when merging a cluster's members.
+# A config.yaml override can change a source's settings but not remove a source (edit this list in your own copy for that).
+sources:
+  freehire: {via_recruiter: false, countries: [ca], regions: [none], categories: [software_engineering, fullstack, backend, frontend, ai_engineering, mobile]}
+  indeed: {terms: [software engineer, full stack engineer], location: Canada, country: Canada, results_wanted: 100, delay_seconds: [4, 8], retry_after_429_seconds: 120}
+  linkedin: {terms: [software engineer, full stack engineer], location: Canada, results_wanted: 100, delay_seconds: [4, 8], retry_after_429_seconds: 120}
+notion:
+  title: Full Time Role Search   # the database and its view header, set by `notion-setup`
+  database_id: ""        # set in your config.yaml; `python -m jobapplier notion-setup` prints it
+  data_source_id: ""     # set in your config.yaml too
+mail:  # read-only Gmail (OAuth scope gmail.readonly); on when the token file exists, see README "Mail"
+  client_secrets: data/gmail_client.json  # the OAuth client downloaded from Google Cloud, relative to the repo
+  token: data/gmail_token.json            # written by `mail-login`
+  applied_lookback_days: 365    # how far back "applied before" looks
+  # A message whose subject or start of body has one of these (whole words) counts as an application confirmation.
+  applied_phrases: [thank you for applying, thanks for applying, application received, we received your application, your application to, application submitted]

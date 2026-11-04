@@ -1,4 +1,6 @@
 profile.yaml
+config.yaml
+.env
 answers_bank.md
 resume/
 output/

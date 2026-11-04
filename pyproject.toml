@@ -1,0 +1,32 @@
+[project]
+name = "jobapplier"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "python-jobspy==1.4.1",
+    "requests",
+    "pyyaml",
+    "notion-client==3.1.0",
+    "httpx>=0.28",
+    "urllib3>=2",
+    "google-auth>=2.62.1",
+    "google-auth-oauthlib>=1.5.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff>=0.17.3",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "--import-mode=importlib"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = ["docs"]  # the plans there quote code as it was written
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]

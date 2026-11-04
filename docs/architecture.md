@@ -199,7 +199,7 @@ sequenceDiagram
   C-->>P: Keep / reword / add (cites sources) / omit
   P->>P: Grounding check, render, 1 page
   opt Workday-style account needed
-    P->>P: Password saved to Keychain first
+    P->>P: Password saved to the secrets store first
     P->>B: Create account
     P->>M: Wait for verification email
     M-->>P: Code or link
@@ -247,7 +247,7 @@ At most 4 jobs start LLM work per hour (adjustable), so the pipeline doesn't use
 |---|---|
 | **Locks** | Python `fcntl.flock` + PID. A crashed run can't block later runs |
 | **Paths** | launchd has a bare PATH, so the scripts use full paths to `uv`, `claude` and `tectonic` |
-| **Secrets** | Keychain: Notion token, mail token, a password per Workday-style account (saved before the account is created) |
+| **Secrets** | `.env` (git-ignored): Notion token, mail token. A password per Workday-style account is saved to a secure store before the account is created (store not chosen yet) |
 | **Least access** | Notion sees one database · mail is read-only · writing calls: Skill tool only · classification calls: no tools · tier 3: browser only · no ports opened |
 | **Chrome** | Dedicated profile. Opens without taking focus where possible. The automation banner is left alone (no evasion) |
 
@@ -257,7 +257,7 @@ At most 4 jobs start LLM work per hour (adjustable), so the pipeline doesn't use
 
 ## 11. How it gets built (simplicity first)
 
-Python 3.12 with standard-library `sqlite3` and dataclasses, and a few packages (JobSpy, requests, Playwright, PyYAML, msal). No ORM, no web framework, no task queue. Two small interfaces, **Source** and **ATS adapter**, plus a state machine in one module. Everything else is plain functions. Tests come first for the core logic, using today's spike data.
+Python 3.12 with standard-library `sqlite3` and dataclasses, and a few packages (JobSpy, requests, notion-client, Playwright, PyYAML, msal). No ORM, no web framework, no task queue. Two small interfaces, **Source** and **ATS adapter**, plus a state machine in one module. Everything else is plain functions. Tests come first for the core logic, using today's spike data.
 
 ```mermaid
 flowchart LR
