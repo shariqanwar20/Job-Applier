@@ -5,8 +5,11 @@ name:
 email: alex@example.com
 phone: "+1 416 555 0100"
 location:
+  address_line_1: 100 Example Street
+  address_line_2: ""
   city: Toronto
   province: Ontario
+  postal_code: M5V 0A1
   country: Canada
 links:
   linkedin: https://www.linkedin.com/in/alex-example
@@ -23,3 +26,7 @@ relocation:
 salary_expectation: Open to discussing a fair range for the role   # for free-text salary questions
 salary_default: "85000"   # a salary field when the posting states no range
 voluntary_self_id: decline  # decline: pick "prefer not to say" in gender, race, veteran and disability questions
+
+# common form answers not covered above
+how_did_you_hear: Job board (online)   # pick the closest option: job board, website, LinkedIn, other
+phone_device_type: Mobile

@@ -22,7 +22,7 @@ def test_the_example_has_every_key_the_filler_reads():
         "salary_default",
         "voluntary_self_id",
     }
-    assert set(p["name"]) == {"first", "last"} and set(p["location"]) == {"city", "province", "country"}
+    assert set(p["name"]) == {"first", "last"} and {"city", "province", "country"} <= set(p["location"])
     assert set(p["work_authorization"]) == {"canada", "sponsorship_now", "sponsorship_future"}
     assert set(p["relocation"]) == {"willing", "cities"} and {"linkedin", "github"} <= set(p["links"])
 

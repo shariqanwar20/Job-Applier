@@ -212,7 +212,11 @@ def test_find_code_returns_the_newest_code_after_the_cutoff(mail_cfg, tmp_path):
         }
     )
     g = open_gmail(mail_cfg, tmp_path, api)
-    assert g.find_code(["greenhouse.io", "lever.co"], NOW - timedelta(minutes=10)) == "222222"
+    assert g.find_code(["greenhouse.io", "lever.co"], NOW - timedelta(minutes=10)) == {
+        "code": "222222",
+        "sender": "a@x.com",
+        "received": NOW - timedelta(minutes=2),
+    }
     assert api.calls[0][1][0] == ("q", "from:(greenhouse.io OR lever.co) newer_than:1d")
     assert g.find_code(["greenhouse.io"], NOW) is None
     assert g.find_code([], NOW - timedelta(hours=1)) is None

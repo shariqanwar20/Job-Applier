@@ -153,13 +153,14 @@ class Gmail:
                 return f"{m['received']:%Y-%m-%d}: {m['subject']}"
         return None
 
-    def find_code(self, sender_domains: list[str], after: datetime) -> str | None:
-        """The newest code mailed at or after `after` from one of the domains. Polling is the caller's job."""
+    def find_code(self, sender_domains: list[str], after: datetime) -> dict | None:
+        """{"code", "sender", "received"} of the newest code mailed at or after `after` from one of the
+        domains. Polling is the caller's job."""
         if not sender_domains:
             return None
         for m in self.search(f"from:({' OR '.join(sender_domains)}) newer_than:1d"):
             if m["received"] >= after and (code := extract_code(f"{m['subject']} {m['preview']}")):
-                return code
+                return {"code": code, "sender": m["sender"], "received": m["received"]}
         return None
 
 

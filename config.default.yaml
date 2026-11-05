@@ -55,7 +55,7 @@ profile:
 llm:  # headless Claude Code calls (`claude -p`) on your subscription
   claude: /opt/homebrew/bin/claude
   timeout_seconds: 300
-  models: {tailor: claude-sonnet-5-5, classify: claude-haiku-5-5}
+  models: {tailor: claude-sonnet-5-5, classify: claude-haiku-5-5, apply: claude-haiku-5-5}
 tailor:  # a one-page resume per approved row, from resume/master.tex; see README "Tailoring"
   master: resume/master.tex
   output_dir: output             # the PDFs, First_Last_Company_Role.pdf
@@ -83,68 +83,72 @@ tailor:  # a one-page resume per approved row, from resume/master.tex; see READM
 schedule:  # the LaunchAgent (install-agent) runs `python -m jobapplier run` every 30 minutes
   discover_every_minutes: 120   # discover only this often; tailoring runs on every tick
 
-apply:  # `apply` opens ready rows in Chrome and pre-fills the form; you check it and submit. See README "Apply"
-  max_tabs: 8                      # tabs opened per run; run apply again for the rest
+apply:  # `apply` runs one Haiku agent per ready row in Chrome; you check the form and submit. See README "Apply"
+  max_tabs: 8                      # applications per run; run apply again for the rest
   browser_profile: data/browser-profile  # Chrome profile kept between runs, so a sign-in you do by hand stays
   load_timeout_seconds: 30
   parser_wait_seconds: 3           # after the resume upload, for the site's resume parser to fill fields
-  field_timeout_seconds: 3         # per field; a field that takes longer is left for you
-  # A page whose URL or title has one of these (whole words), or that shows a password field, is left for you.
-  login_words: [sign in, signin, log in, login, create account, create an account, sign up, signup, register]
-  # Multi-page forms: after filling a page, apply clicks the form's button whose visible text starts with one
-  # of next_words and has at most next_max_extra_words more words ("Next: Experience", "Continue to step 3"),
-  # none of them in next_deny_words ("Next month", "Continue reading"). No source of its name (aria-label,
-  # labelled-by text, text, value, title) may have a submit_words, login_words or sign_in_button_words
-  # word. Then it fills the next page, up to max_pages pages. It stops (and leaves the page to you) when any
-  # visible button on the page has a submit word, a required field is still empty, a sign-in page appears,
-  # there is no next button, or the page did not change after the click (a validation error).
-  max_pages: 8
-  next_wait_seconds: 2             # after clicking next, for the new page to draw
+  field_timeout_seconds: 3         # per action; one that takes longer is reported to the model as failed
+  agent:
+    max_steps: 60                  # model calls per application
+    max_cost_usd: 0.50             # per application; the loop stops once its calls cost this much
+    max_snapshot_chars: 30000      # the page as JSON; elements past this are left out and counted
+    max_options: 80                # options shown per select
+    description_chars: 3000        # of the job description, in the prompt
+    settle_seconds: 1.5            # after each step's actions, for the page to redraw
+    unchanged_steps: 3             # the same page this many snapshots in a row stops the loop...
+    stuck_seconds: 45              # ...when it also stayed the same this long (slow pages load late)
+    idle_wait_seconds: 8           # extra wait after a step where the model did nothing (page loading)
+    # Hand-off: at a sign-in or account step, a question it cannot answer, or a captcha that is the whole
+    # page (a visible frame from one of captcha_hosts, with no form fields beside it), the tab waits for you.
+    # It polls every poll_seconds for up to wait_for_owner_seconds; once the page has changed and stays the
+    # same for resume_stable_polls polls, with no password field or captcha left, the loop goes on. At most
+    # max_handoffs.
+    poll_seconds: 3
+    resume_stable_polls: 3         # polls the changed page must stay the same: the owner is done, not typing
+    wait_for_owner_seconds: 300
+    max_handoffs: 3
+    captcha_hosts: [captcha-delivery.com, hcaptcha.com, google.com/recaptcha, recaptcha.net, challenges.cloudflare.com, arkoselabs]
+    # Verification codes: a page whose headings or field labels have one of code_words (or a field with
+    # autocomplete="one-time-code") asks for a code. JobApplier reads it from your Gmail (read-only, after
+    # `mail-login`): from the page's domain or its code_senders, mailed from a minute before the step
+    # that sent it. It checks every code_poll_seconds for up to code_wait_seconds, types it (one digit per
+    # box where the page has one box per digit) and clicks the button whose name starts with one of
+    # verify_words, on a page with at most code_page_max_fields other fields. No code, or no mail: it waits
+    # for you to type it. The model never types a code.
+    code_words: [verification code, verify code, security code, confirmation code, confirm your identity, enter the code, one time code, one time password, one time passcode, otp, passcode, 6 digit code, six digit code, authentication code]
+    # Which mail a code may come from: the first entry whose host regex matches the page's host gives its
+    # senders. A host with no entry reads only its own registrable domain, unless that domain is one of
+    # the senders here (a shared platform host like objectstorage.*.oraclecloud.com) or in
+    # no_code_domains (sites anyone can publish on): then it never reads mail and waits for you.
+    code_senders:
+      - {host: '^(?!objectstorage\.)([a-z0-9-]+\.)*(fa-[a-z0-9-]+|fa)\.([a-z0-9-]+\.)*oraclecloud\.com$', senders: [oraclecloud.com, oracle.com]}
+      - {host: '^[a-z0-9-]+\.taleo\.net$', senders: [taleo.net, oracle.com]}
+      - {host: '^[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$', senders: [myworkday.com, workday.com, myworkdayjobs.com]}
+      - {host: '^wd\d+\.myworkday\.com$', senders: [myworkday.com, workday.com]}
+      - {host: '^(boards|job-boards|app)\.(eu\.)?greenhouse\.io$', senders: [greenhouse.io, greenhouse-mail.io]}
+      - {host: '^jobs\.(eu\.)?lever\.co$', senders: [lever.co]}
+      - {host: '^jobs\.ashbyhq\.com$', senders: [ashbyhq.com]}
+      - {host: '^(jobs|careers)\.smartrecruiters\.com$', senders: [smartrecruiters.com]}
+      - {host: '^[a-z0-9-]+\.icims\.com$', senders: [icims.com]}
+      - {host: '^career\d*\.successfactors\.(com|eu)$', senders: [successfactors.com, sap.com]}
+    no_code_domains: [google.com, github.io, githubusercontent.com, notion.site, wixsite.com, webflow.io, netlify.app, vercel.app, pages.dev, herokuapp.com, azurewebsites.net, amazonaws.com, blogspot.com, wordpress.com, microsoft.com, office.com, live.com, typeform.com, jotform.com]
+    code_poll_seconds: 5
+    code_wait_seconds: 180
+    verify_words: [verify, confirm, continue, next, submit code]
+    code_page_max_fields: 8
+  # The click guard, in code: a control is never clicked when any source of its name (aria-label,
+  # labelled-by text, text, value, title) has a word starting with one of submit_stems, a sign_in_words
+  # word, or a non-Latin look-alike letter. An apply_words control is clicked only while nothing is filled
+  # yet (the job page's start button, never a form's final Apply). A link, or a button that submits its
+  # form, is clicked only when its visible text starts with one of next_words and has at most
+  # next_max_extra_words more words, none in next_deny_words.
+  submit_stems: [submi, send, sent, finish, final, complet, confirm, done, post, soumet, soumis, envoy, termin, valid]
+  sign_in_words: [sign in, signin, log in, login, create account, create an account, sign up, signup, register, continue with, sign in with, log in with, apply with]
+  apply_words: [apply, apply now, apply for this job, apply for this position, apply to this job, start application, start your application, begin application, postuler, postulez, postuler maintenant]
+  # An Apply with one of these is never clicked: it sends a stored profile at once when you are signed in,
+  # and the Chrome profile keeps sign-ins.
+  one_click_words: [one click, 1 click, quick, instant, instantly, easy apply, express]
   next_words: [next, continue, proceed, save and continue, save and next, save & continue, go to next]
   next_max_extra_words: 5
-  next_deny_words: [month, year, week, day, slide, image, photo, video, page, pages, results, jobs, article, reading, story, payment, checkout, cart, tour, tip]
-  submit_words: [submit, apply, send, finish, complete, confirm, done, review and submit, submit application]
-  # Word starts that also mark a submit button: "submission", "finalize", "confirmation", "post". apply stays a
-  # whole word in submit_words, so "Continue application" is still a next button.
-  submit_stems: [submi, send, sent, finish, final, complet, confirm, done, post]
-  sign_in_button_words: [continue with, sign in with, log in with]  # "Continue with Google" signs you in
-  # A checkbox is ticked only when its label has a consent_words word, a policy_words word, and no
-  # opt_in_words word: "I have read and agree to the privacy policy" is ticked; "I agree to hear about
-  # similar openings" is left for you. A required box left unticked stops the walk for you.
-  # tick_opt_ins: true ticks every box with a consent word.
-  consent_words: [consent, agree, acknowledge, privacy, terms, certify, accurate, true and complete, authorize]
-  policy_words: [terms, privacy, policy, notice, accurate, "true", certify, acknowledge, read, understand, data processing, gdpr]
-  opt_in_words: [receive, contacted, contact me, communications, future opportunities, future openings, future roles, talent community, talent pool, subscribe, updates, newsletter, whatsapp, text, texts, sms, text message, marketing, promotional, partners, retain, retaining, job alerts, other, future, similar, new, roles, positions, openings, vacancies, network, pool, events, informed, notify, share, sharing, affiliates, store, storing, email, emailed, hear]
-  tick_opt_ins: false
-  # A label with one of these word starts is never filled from profile.yaml: someone else's name or phone
-  # ("Contact name", "Emergency contact"); your own "Contact email" or "Contact number" is still filled.
-  skip_words: [contact name, contact person, relation, emergency, manager, extension, reference, referr]
-  # The option picked for a demographic question when profile.yaml has voluntary_self_id: decline.
-  decline_words: [prefer not, decline, do not wish, don t wish, not to answer, not to disclose, not to say, choose not, rather not, not wish to]
-  # Field label -> profile.yaml key. The first rule with a pattern in the label wins (whole words, normalized
-  # like titles). key: a list tries each key in turn; skip leaves the field to you; salary is the posting's
-  # stated range, else salary_expectation in a text box, else salary_default; relocation is your cities
-  # for a free-text "which cities" question, else relocation.willing. whole: true matches only the whole
-  # label ("Name", not "Company name"). The yes/no questions come before the skip rule, since they may
-  # mention an employer.
-  fields:
-    - {patterns: [gender, pronoun, pronouns, race, racial, ethnicity, ethnic, veteran, disability, disabled, hispanic, latino, sexual orientation, transgender, lgbtq, indigenous, visible minority], key: voluntary_self_id}
-    - {patterns: [in the future require, future require, future sponsorship, sponsorship in the future], key: work_authorization.sponsorship_future}
-    - {patterns: [sponsorship, sponsor], key: work_authorization.sponsorship_now}
-    - {patterns: [authorized to work in canada, authorised to work in canada, eligible to work in canada, entitled to work in canada, legally work in canada, right to work in canada, permitted to work in canada], key: work_authorization.canada}
-    - {patterns: [relocate, relocation], key: relocation}
-    - {patterns: [company name, current company, current employer, employer, school, university, preferred name, preferred first name, nickname, referred, referral, referrer, reference, recruiter, hiring manager, cover letter, how did you hear], key: skip}
-    - {patterns: [first name, given name, prenom], key: name.first}
-    - {patterns: [last name, family name, surname, nom de famille], key: name.last}
-    - {patterns: [full name, legal name, your name, name], key: name.full, whole: true}
-    - {patterns: [email, e mail, courriel], key: email}
-    - {patterns: [phone, mobile, telephone, cell, contact number], key: phone}
-    - {patterns: [linkedin], key: links.linkedin}
-    - {patterns: [github], key: links.github}
-    - {patterns: [website, portfolio, personal site, personal url], key: [links.website, links.github]}
-    - {patterns: [salary, compensation, pay expectation, pay expectations, expected pay, desired pay], key: salary}
-    - {patterns: [start date, available to start, earliest start, when can you start, availability, notice period], key: start_date}
-    - {patterns: [city], key: location.city}
-    - {patterns: [province, state province, province state], key: location.province}
-    - {patterns: [country], key: location.country}
-    - {patterns: [location, where are you based, where do you live, current location], key: location.full}
+  next_deny_words: [month, year, week, day, slide, image, photo, video, page, pages, results, job, jobs, opening, role, article, reading, story, payment, checkout, cart, tour, tip]

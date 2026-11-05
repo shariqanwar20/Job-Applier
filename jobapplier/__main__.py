@@ -14,6 +14,7 @@ from pathlib import Path
 from playwright.sync_api import Error as PlaywrightError
 
 from jobapplier import llm
+from jobapplier.apply.agent import resume_text
 from jobapplier.apply.browser import chrome
 from jobapplier.apply.profile import ProfileError, load_profile, profile_values
 from jobapplier.config import load_config, load_env
@@ -25,6 +26,7 @@ from jobapplier.notion.push import create_database, ready_rows, row_job_id, styl
 from jobapplier.pipelines.apply import run_apply
 from jobapplier.pipelines.discover import run_discover
 from jobapplier.pipelines.tailor import run_tailor
+from jobapplier.resume.master import MasterError, parse
 from jobapplier.sources import build_sources
 from jobapplier.system import launchd
 from jobapplier.system.lock import locked
@@ -54,9 +56,17 @@ def main(argv: list[str] | None = None) -> int:
         "run", help="the scheduled step: discover when the last one is old enough, then tailor approved rows"
     )
     apply = commands.add_parser(
-        "apply", help="open ready rows in Chrome, pre-filled; you submit, then answer which ones you did"
+        "apply", help="fill ready rows in Chrome with a Haiku agent; you submit, then say which ones you did"
     )
     apply.add_argument("--job", help="open only this Job ID (e.g. J27), whatever its Status")
+    apply.add_argument(
+        "--no-prompt",
+        action="store_true",
+        help="ask nothing and mark nothing Submitted; close Chrome when done",
+    )
+    apply.add_argument(
+        "--no-wait", action="store_true", help="never wait for you at a sign-in, code or captcha"
+    )
     commands.add_parser("install-agent", help="run `run` every 30 minutes via a launchd LaunchAgent")
     commands.add_parser("uninstall-agent", help="remove the LaunchAgent")
     args = parser.parse_args(argv)
@@ -80,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         return _run()
     if args.command == "apply":
-        return _apply(args.job)
+        return _apply(args.job, prompt=not args.no_prompt, wait=not (args.no_wait or args.no_prompt))
     return _discover()
 
 
@@ -122,24 +132,46 @@ def _notify_ready() -> int:
         return 1
 
 
-def _apply(job_id: str | None) -> int:
+def _apply(job_id: str | None, prompt: bool = True, wait: bool = True) -> int:
     """Interactive, so no lock: it only reads SQLite and sets Status in Notion."""
     cfg = load_config(_ROOT)
     token = _notion_token(cfg)
     if token is None:
         return 1
+    master = _ROOT / cfg["tailor"]["master"]
     try:
         values = profile_values(load_profile(_ROOT / "profile.yaml"))
-    except ProfileError as exc:
+        if not master.exists():
+            print(f"no {cfg['tailor']['master']}: copy resume/example.master.tex there and edit it")
+            return 1
+        resume = resume_text(parse(master.read_text()))
+    except (ProfileError, MasterError) as exc:
         print(exc)
         return 1
     (_ROOT / "data").mkdir(exist_ok=True)
     conn = clusters.connect(str(_ROOT / "data" / "jobs.db"))
     browser = partial(chrome, _ROOT / cfg["apply"]["browser_profile"])
+    llm_run = partial(llm.run_with_cost, claude=cfg["llm"]["claude"], timeout=cfg["llm"]["timeout_seconds"])
     try:
         rules = Rules.from_config(cfg)
+        client = make_client(token)
         # input passed here, not as run_apply's default, so it is looked up when called
-        result = run_apply(conn, cfg, make_client(token), rules, values, browser, job_id, ask=input)
+        result = run_apply(
+            conn,
+            cfg,
+            client,
+            rules,
+            values,
+            resume,
+            browser,
+            llm_run,
+            _ROOT / "logs",
+            job_id,
+            input,
+            prompt=prompt,
+            wait=wait,
+            gmail=_gmail(cfg),
+        )
     except NotionError as exc:
         print(f"notion: {exc}")
         return 1
