@@ -137,6 +137,11 @@ _SNAPSHOT = (
         required: !!el.required || el.getAttribute('aria-required') === 'true',
         disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
         tabindex: el.getAttribute('tabindex'),
+        // the field's own help or validation message ("Enter a valid LinkedIn URL")
+        hint: field ? (el.getAttribute('aria-describedby') || '').split(/\\s+/).filter(Boolean)
+          .map(id => el.ownerDocument.getElementById(id)).filter(Boolean).map(text).join(' ')
+          .slice(0, 200) : '',
+        invalid: el.getAttribute('aria-invalid') === 'true',
         aria: t(el.getAttribute('aria-label')), labelledby: by(el), text: field ? '' : text(el).slice(0, 200),
         title: t(el.getAttribute('title')), auto: (el.getAttribute('autocomplete') || '').toLowerCase(),
         maxlength: el.maxLength > 0 ? el.maxLength : null, ...facts(el), labels: labels.map(facts),
@@ -391,8 +396,10 @@ def _entry(e: dict, cap: int) -> dict:
             out["value"] = e["value"]
         if e["options"]:
             out["options"] = _options(e["options"], cap)
-    for key in ("checked", "required", "disabled"):
-        if e[key]:
+        if e.get("hint"):
+            out["hint"] = e["hint"]
+    for key in ("checked", "required", "disabled", "invalid"):
+        if e.get(key):
             out[key] = True
     return out
 

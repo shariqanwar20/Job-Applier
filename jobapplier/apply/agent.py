@@ -71,6 +71,8 @@ Actions, each on an element's ref:
 
 Rules:
 - Fill every field you can from my profile and resume. Leave a field empty when they do not answer it.
+- A field marked "invalid" or with an error "hint" was rejected: read the hint and fix that value (a URL may
+  need https://www. or a different format) instead of clicking Next again.
 - On a job description page, click its button or link that starts the application ("Apply now",
   "Apply for this job", "Start application").
 - Upload my resume into the resume or CV field. Do the upload alone in its turn, before the other fields:
