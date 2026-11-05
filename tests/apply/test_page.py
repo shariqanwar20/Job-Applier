@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from jobapplier.apply import page as page_mod
-from jobapplier.apply.page import ClickRules, RefusedError, act, fill_code, read, verify
+from jobapplier.apply.page import ClickRules, RefusedError, act, code_masks, fill_code, read, verify
 from tests.apply.fakes import SHOWN, FakePage, btn, el, link, state
 from tests.conftest import ROOT
 
@@ -249,7 +249,17 @@ def test_a_forms_own_apply_submit_is_refused_even_on_a_fresh_page(live, rules):
     assert "Apply" in rules.refuse(live, fresh=True)
 
 
-@pytest.mark.parametrize("text", ["Postuler", "Soumettre", "Envoyer", "Terminer", "Confirmer"])
+@pytest.mark.parametrize(
+    "text", ["1-Click Apply", "Quick Apply", "Easy Apply", "Apply instantly with one click", "Express apply"]
+)
+def test_a_one_click_apply_is_refused_even_on_a_fresh_job_page(text, rules):
+    # it submits at once when the owner is signed in, and the Chrome profile keeps sign-ins
+    assert rules.refuse(names(text), fresh=True)
+
+
+@pytest.mark.parametrize(
+    "text", ["Postuler", "Soumettre", "Envoyer", "Terminer", "Confirmer", "Valider ma candidature"]
+)
 def test_french_submit_and_apply_words_are_known(text, rules):
     assert rules.refuse(names(text, type="submit", form_fields=2), fresh=True)
 
@@ -266,8 +276,8 @@ def test_the_click_binding_rejects_a_name_that_changed_after_the_check(rules):
 # --- the actions ---
 
 
-def run_act(agent_cfg, rules, page, action, filled=0):
-    return act(page, read(page, agent_cfg), action, PDF, rules, filled, 1000)
+def run_act(agent_cfg, rules, page, action, apply_open=True):
+    return act(page, read(page, agent_cfg), action, PDF, rules, apply_open, 1000)
 
 
 def test_fill_select_check_uncheck_and_upload_work_by_ref(agent_cfg, rules):
@@ -409,6 +419,21 @@ def test_a_code_is_not_filled_off_a_code_page_or_into_boxes_that_do_not_fit(agen
     assert page.done == []
 
 
+def test_a_code_is_not_typed_on_a_page_with_too_many_other_fields(agent_cfg, rules):
+    page = code_page(*[el(10 + i, f"Question {i}") for i in range(9)])
+    with pytest.raises(RefusedError, match="fields"):
+        fill_code(page, read(page, agent_cfg), "482913", rules, 1000)
+    assert page.done == []
+
+
+def test_the_masks_cover_code_fields_and_any_field_that_shows_a_code(agent_cfg, rules):
+    page = code_page(el(8, "Reference", value="482-913"), el(9, "City", value="Toronto"))
+    masked = [m.ref for m in code_masks(page, read(page, agent_cfg), {"482913"})]
+    assert masked == [1, 2, 3, 4, 5, 6, 8]
+    after = FakePage([state(el(1, "Reference", value="482913"), el(2, "City"))])  # no longer a code page
+    assert [m.ref for m in code_masks(after, read(after, agent_cfg), {"482913"})] == [1]
+
+
 def test_verify_clicks_the_code_pages_verify_button(agent_cfg, rules):
     page = code_page(btn(8, "Resend code"))
     assert verify(page, read(page, agent_cfg), rules, 1000) == "Verify"
@@ -493,14 +518,14 @@ def test_apply_is_refused_on_a_page_that_already_has_answers_or_an_upload(prefil
     page = FakePage([state(prefill, btn(2, "Apply now"))])  # filled by the owner, or a parser, not the agent
     assert not read(page, agent_cfg).fresh
     with pytest.raises(RefusedError, match="Apply"):
-        run_act(agent_cfg, rules, page, {"op": "click", "ref": 2}, filled=0)
+        run_act(agent_cfg, rules, page, {"op": "click", "ref": 2})
     assert page.clicks == []
 
 
 def test_apply_now_on_a_job_page_is_still_clicked(agent_cfg, rules):
     page = FakePage([state(el(1, "Search jobs", type="search", value="developer"), btn(2, "Apply now"))])
     assert read(page, agent_cfg).fresh
-    run_act(agent_cfg, rules, page, {"op": "click", "ref": 2}, filled=0)
+    run_act(agent_cfg, rules, page, {"op": "click", "ref": 2})
     assert page.clicks == ["Apply now"]
 
 

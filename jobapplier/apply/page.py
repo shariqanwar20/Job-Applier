@@ -211,6 +211,7 @@ class ClickRules:
     )  # a verification code page or field: the code from the mail goes there, never the model's
     verify_start: re.Pattern  # the code page's verify button
     code_page_max_fields: int
+    one_click: re.Pattern  # an Apply that sends a stored profile at once
 
     @classmethod
     def from_config(cls, apply_cfg: dict) -> "ClickRules":
@@ -228,6 +229,7 @@ class ClickRules:
             words(apply_cfg["agent"]["code_words"]),
             re.compile(r"^(" + _raw(apply_cfg["agent"]["verify_words"]) + r")\b"),
             int(apply_cfg["agent"]["code_page_max_fields"]),
+            words(apply_cfg["one_click_words"]),
         )
 
     @staticmethod
@@ -266,6 +268,8 @@ class ClickRules:
         if why := self.name_refusal(live):
             return why
         if any(self.apply.search(n) for n in names):
+            if any(self.one_click.search(n) for n in names):
+                return "a one-click Apply: it may send a stored profile at once"
             # A form's own submit, or any page with answers on it: its Apply may send the application.
             own_submit = live["form"] and kind in ("submit", "image") and live["form_fields"] > 0
             if own_submit or not fresh:
@@ -474,8 +478,8 @@ def _captcha(raw: dict, kept: list[dict], agent_cfg: dict) -> bool:
     return found and not any(_is_field(e) and e["type"] != "file" for e in kept)
 
 
-def _click(root, selector: str, live: dict, rules: ClickRules, fresh: bool, timeout_ms: float) -> None:
-    """The only click in the apply code."""
+def _click(root, selector: str, live: dict, rules: ClickRules, fresh: bool, timeout_ms: float) -> str:
+    """The only click in the apply code. Returns "apply" for an Apply click, else "click"."""
     if why := rules.refuse(live, fresh):
         raise RefusedError(why)
     if live["tag"] == "input":  # its name is its value
@@ -492,6 +496,7 @@ def _click(root, selector: str, live: dict, rules: ClickRules, fresh: bool, time
         if inner.count():
             target = inner.first
     target.click(timeout=timeout_ms)
+    return "apply" if any(rules.apply.search(norm(live[k])) for k in _SOURCES) else "click"
 
 
 def _where(page, e: dict):
@@ -502,9 +507,12 @@ def _where(page, e: dict):
     return root, f'[data-jobapplier="{e["ref"]}"]'
 
 
-def act(page, snap: Snapshot, action: dict, pdf: Path, rules: ClickRules, filled: int, timeout_ms: float):
-    """Does one model action ({"op", "ref", "value"?}) or raises RefusedError. An upload always puts pdf in:
-    the model never names a file."""
+def act(
+    page, snap: Snapshot, action: dict, pdf: Path, rules: ClickRules, apply_open: bool, timeout_ms: float
+):
+    """Does one model action ({"op", "ref", "value"?}) or raises RefusedError; a click returns "apply" or
+    "click". An upload always puts pdf in: the model never names a file. apply_open: the application has
+    not started yet (no fill, no click past the job page's Apply, no hand-off)."""
     ref = action.get("ref")
     e = snap.refs.get(ref) if isinstance(ref, int) and not isinstance(ref, bool) else None
     if e is None:
@@ -515,7 +523,7 @@ def act(page, snap: Snapshot, action: dict, pdf: Path, rules: ClickRules, filled
     if live["disabled"]:
         raise RefusedError("it is disabled")
     if op == "click":
-        return _click(root, selector, live, rules, snap.fresh and not filled, timeout_ms)
+        return _click(root, selector, live, rules, snap.fresh and apply_open, timeout_ms)
     if op not in _FITS:
         raise RefusedError(f"not an action: {op!r}")
     if live["type"] == "password" or live["pw_form"]:
@@ -555,16 +563,30 @@ def _code_fields(snap: Snapshot, rules: ClickRules) -> list[dict]:
     return boxes if len(boxes) > 1 else fields[:1]
 
 
-def code_masks(page, snap: Snapshot, rules: ClickRules) -> list:
-    """Locators of the code fields, to black out in a screenshot."""
-    return [(lambda root, sel: root.locator(sel))(*_where(page, e)) for e in _code_fields(snap, rules)]
+def code_masks(page, snap: Snapshot, codes: set[str]) -> list:
+    """Locators to black out in a screenshot: the code fields, and any field that shows a used code."""
+    shown = [
+        e
+        for e in snap.refs.values()
+        if e.get("code") or any(c in re.sub(r"[\s-]", "", e["value"]) for c in codes)
+    ]
+    return [(lambda root, sel: root.locator(sel))(*_where(page, e)) for e in shown]
+
+
+def _check_code_page(snap: Snapshot, rules: ClickRules) -> None:
+    """Refuses unless the page asks for a code and has few other fields: never an application form."""
+    if not snap.code_page:
+        raise RefusedError("not a verification code page")
+    codes = {e["ref"] for e in _code_fields(snap, rules)}
+    others = [e for e in snap.refs.values() if _is_field(e) and e["ref"] not in codes and e["type"] != "file"]
+    if len(others) > rules.code_page_max_fields:
+        raise RefusedError(f"{len(others)} other fields: not a verification code page")
 
 
 def fill_code(page, snap: Snapshot, code: str, rules: ClickRules, timeout_ms: float) -> None:
     """Types a code read from the owner's mail: one digit per box, or the whole code in its one field.
     The model never gives the code; this is the only fill outside act."""
-    if not snap.code_page:
-        raise RefusedError("not a verification code page")
+    _check_code_page(snap, rules)
     fields = _code_fields(snap, rules)
     parts = list(code) if len(fields) > 1 else [code]
     if not fields or len(parts) != len(fields):
@@ -580,12 +602,7 @@ def fill_code(page, snap: Snapshot, code: str, rules: ClickRules, timeout_ms: fl
 def _click_verify(page, snap: Snapshot, ref: int, rules: ClickRules, timeout_ms: float) -> None:
     """The one other click: the verify button of a code page, whose name often has a submit word. Only on a
     page that asks for a code and has few other fields, so it can never be an application's submit."""
-    if not snap.code_page:
-        raise RefusedError("not a verification code page")
-    codes = {e["ref"] for e in _code_fields(snap, rules)}
-    others = [e for e in snap.refs.values() if _is_field(e) and e["ref"] not in codes and e["type"] != "file"]
-    if len(others) > rules.code_page_max_fields:
-        raise RefusedError(f"{len(others)} other fields: not a verification code page")
+    _check_code_page(snap, rules)
     e = snap.refs.get(ref)
     if e is None or _is_field(e):
         raise RefusedError("not a button on this page")

@@ -412,6 +412,35 @@ def test_a_headline_or_error_change_alone_does_not_resume(job):
     assert not app.wait_for_owner()
 
 
+def test_apply_on_a_page_reached_by_a_next_click_is_refused(job):
+    page = FakePage([state(btn(1, "Next", goes=1)), state(btn(2, "Apply"))])
+    llm = FakeLlm(
+        [answer({"op": "click", "ref": 1}), answer({"op": "click", "ref": 2}), answer(status="needs_owner")]
+    )
+    run(job, page, llm)
+    assert page.clicks == ["Next"] and "REFUSED click 2 (Apply)" in llm.calls[2]["prompt"]
+
+
+def test_apply_after_a_hand_off_is_refused_on_a_fresh_page(job):
+    page = FakePage([CAPTCHA, state(btn(2, "Apply now"))])
+    owner_goes_to(page, 1)
+    llm = FakeLlm([answer({"op": "click", "ref": 2}), answer(status="needs_owner")])
+    app = make(job, page, llm)
+    app.advance()
+    assert app.wait_for_owner()
+    app.advance()
+    assert page.clicks == []
+
+
+def test_apply_then_apply_manually_both_start_the_application(job):  # Workday asks twice
+    page = FakePage([state(btn(1, "Apply", goes=1)), state(btn(2, "Apply Manually", goes=2)), FORM])
+    llm = FakeLlm(
+        [answer({"op": "click", "ref": 1}), answer({"op": "click", "ref": 2}), answer(status="needs_owner")]
+    )
+    run(job, page, llm)
+    assert page.clicks == ["Apply", "Apply Manually"]
+
+
 # --- verification codes from the owner's mail ---
 
 CODE = "482913"
@@ -503,6 +532,50 @@ def test_the_model_saying_needs_code_on_a_page_without_code_words_hands_off(job)
     app = make(job, page, FakeLlm([answer(status="needs_code")]), FakeGmail(MAIL))
     app.advance()
     assert app.status == "needs_account" and page.done == [] and page.clicks == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://objectstorage.us-ashburn-1.oraclecloud.com/n/x/b/y/o/verify.html",  # anyone's file host
+        "https://docs.google.com/forms/d/e/x/viewform",  # a site anyone can publish on
+        "https://acme.github.io/careers/verify",
+    ],
+)
+def test_a_code_page_on_a_shared_or_unmatched_platform_host_never_reads_mail(url, job):
+    page = state(*CODE_PAGE["elements"], headings=CODE_PAGE["headings"], url=url)
+    gmail = FakeGmail(MAIL)
+    app = make(job, FakePage([page]), FakeLlm([answer()]), gmail)
+    app.advance()
+    assert gmail.calls == [] and app.status == "needs_account" and app.waiting
+
+
+def test_the_oracle_candidate_experience_host_reads_oracle_mail(job):
+    host = "https://fa-epmd-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX/apply"
+    page = state(*CODE_PAGE["elements"], headings=CODE_PAGE["headings"], url=host)
+    gmail = FakeGmail(None)
+    job[1]["apply"]["agent"]["code_wait_seconds"] = 5
+    make(job, FakePage([page]), FakeLlm([answer()]), gmail).advance()
+    assert gmail.calls[0][0] == ["oraclecloud.com", "oracle.com"]
+
+
+def test_a_code_written_with_spaces_or_dashes_is_scrubbed_from_the_prompt_and_history(job):
+    _, _, logs = job
+    echoed = state(el(20, "City"), errors=["Code 482-913 accepted", "Code 482 913 accepted"], url=ORACLE)
+    page = FakePage([EMAIL_PAGE, CODE_PAGE, echoed])
+    llm = email_then_ready()
+    run(job, page, llm, FakeGmail(MAIL))
+    prompt = llm.calls[1]["prompt"]
+    assert "482-913" not in prompt and "482 913" not in prompt and prompt.count("[code]") >= 2
+    raw = (logs / "apply-J7.json").read_text()
+    assert "482-913" not in raw and "482 913" not in raw
+
+
+def test_the_screenshot_after_verify_masks_a_field_that_shows_the_code(job):
+    echoed = state(el(20, "Reference number", value=CODE), url=ORACLE)
+    page = FakePage([EMAIL_PAGE, CODE_PAGE, echoed])
+    run(job, page, email_then_ready(), FakeGmail(MAIL))
+    assert page.masks[-1] == [20]
 
 
 def test_a_page_off_the_known_hosts_reads_mail_only_from_its_own_domain(job):

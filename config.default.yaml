@@ -102,7 +102,8 @@ apply:  # `apply` runs one Haiku agent per ready row in Chrome; you check the fo
     # Hand-off: at a sign-in or account step, a question it cannot answer, or a captcha that is the whole
     # page (a visible frame from one of captcha_hosts, with no form fields beside it), the tab waits for you.
     # It polls every poll_seconds for up to wait_for_owner_seconds; once the page has changed and stays the
-    # same for one poll, with no password field or captcha left, the loop goes on. At most max_handoffs.
+    # same for resume_stable_polls polls, with no password field or captcha left, the loop goes on. At most
+    # max_handoffs.
     poll_seconds: 3
     resume_stable_polls: 3         # polls the changed page must stay the same: the owner is done, not typing
     wait_for_owner_seconds: 300
@@ -116,19 +117,22 @@ apply:  # `apply` runs one Haiku agent per ready row in Chrome; you check the fo
     # verify_words, on a page with at most code_page_max_fields other fields. No code, or no mail: it waits
     # for you to type it. The model never types a code.
     code_words: [verification code, verify code, security code, confirmation code, confirm your identity, enter the code, one time code, one time password, one time passcode, otp, passcode, 6 digit code, six digit code, authentication code]
-    # Page host (or a suffix of it) -> the domains its code mail comes from. Any other host: only its own
-    # registrable domain, so a page on an unknown site never reads an ATS's mail.
+    # Which mail a code may come from: the first entry whose host regex matches the page's host gives its
+    # senders. A host with no entry reads only its own registrable domain, unless that domain is one of
+    # the senders here (a shared platform host like objectstorage.*.oraclecloud.com) or in
+    # no_code_domains (sites anyone can publish on): then it never reads mail and waits for you.
     code_senders:
-      oraclecloud.com: [oraclecloud.com, oracle.com]
-      taleo.net: [taleo.net, oracle.com]
-      myworkdayjobs.com: [myworkday.com, workday.com, myworkdayjobs.com]
-      myworkday.com: [myworkday.com, workday.com]
-      greenhouse.io: [greenhouse.io, greenhouse-mail.io]
-      lever.co: [lever.co]
-      ashbyhq.com: [ashbyhq.com]
-      smartrecruiters.com: [smartrecruiters.com]
-      icims.com: [icims.com]
-      successfactors.com: [successfactors.com, sap.com]
+      - {host: '^(?!objectstorage\.)([a-z0-9-]+\.)*(fa-[a-z0-9-]+|fa)\.([a-z0-9-]+\.)*oraclecloud\.com$', senders: [oraclecloud.com, oracle.com]}
+      - {host: '^[a-z0-9-]+\.taleo\.net$', senders: [taleo.net, oracle.com]}
+      - {host: '^[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$', senders: [myworkday.com, workday.com, myworkdayjobs.com]}
+      - {host: '^wd\d+\.myworkday\.com$', senders: [myworkday.com, workday.com]}
+      - {host: '^(boards|job-boards|app)\.(eu\.)?greenhouse\.io$', senders: [greenhouse.io, greenhouse-mail.io]}
+      - {host: '^jobs\.(eu\.)?lever\.co$', senders: [lever.co]}
+      - {host: '^jobs\.ashbyhq\.com$', senders: [ashbyhq.com]}
+      - {host: '^(jobs|careers)\.smartrecruiters\.com$', senders: [smartrecruiters.com]}
+      - {host: '^[a-z0-9-]+\.icims\.com$', senders: [icims.com]}
+      - {host: '^career\d*\.successfactors\.(com|eu)$', senders: [successfactors.com, sap.com]}
+    no_code_domains: [google.com, github.io, githubusercontent.com, notion.site, wixsite.com, webflow.io, netlify.app, vercel.app, pages.dev, herokuapp.com, azurewebsites.net, amazonaws.com, blogspot.com, wordpress.com]
     code_poll_seconds: 5
     code_wait_seconds: 180
     verify_words: [verify, confirm, continue, next, submit code]
@@ -139,9 +143,12 @@ apply:  # `apply` runs one Haiku agent per ready row in Chrome; you check the fo
   # yet (the job page's start button, never a form's final Apply). A link, or a button that submits its
   # form, is clicked only when its visible text starts with one of next_words and has at most
   # next_max_extra_words more words, none in next_deny_words.
-  submit_stems: [submi, send, sent, finish, final, complet, confirm, done, post, soumet, soumis, envoy, termin]
+  submit_stems: [submi, send, sent, finish, final, complet, confirm, done, post, soumet, soumis, envoy, termin, valid]
   sign_in_words: [sign in, signin, log in, login, create account, create an account, sign up, signup, register, continue with, sign in with, log in with, apply with]
   apply_words: [apply, apply now, apply for this job, apply for this position, apply to this job, start application, start your application, begin application, postuler, postulez, postuler maintenant]
+  # An Apply with one of these is never clicked: it sends a stored profile at once when you are signed in,
+  # and the Chrome profile keeps sign-ins.
+  one_click_words: [one click, 1 click, quick, instant, instantly, easy apply, express]
   next_words: [next, continue, proceed, save and continue, save and next, save & continue, go to next]
   next_max_extra_words: 5
   next_deny_words: [month, year, week, day, slide, image, photo, video, page, pages, results, job, jobs, opening, role, article, reading, story, payment, checkout, cart, tour, tip]

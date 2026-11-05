@@ -9,6 +9,7 @@ import functools
 import hashlib
 import json
 import logging
+import re
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -190,14 +191,18 @@ def _page_digest(snap: Snapshot) -> str:
 
 
 def _senders(url: str, agent_cfg: dict) -> list[str]:
-    """The domains a code for this page may come from: its own, plus apply.agent.code_senders for its
-    host. Never another host's: a page on an unknown site must not read an ATS's codes."""
-    host = urlsplit(url).hostname or ""
-    out = [_site(url)]
-    for suffix, domains in agent_cfg["code_senders"].items():
-        if host == suffix or host.endswith(f".{suffix}"):
-            out += domains
-    return list(dict.fromkeys(out))
+    """The domains a code for this page may come from: its own, plus the senders of the first
+    apply.agent.code_senders entry whose host regex matches. None (the owner types the code) on a site
+    anyone can publish on, or on an unmatched host of a platform those senders belong to
+    (objectstorage.*.oraclecloud.com): a page there must not read an ATS's codes."""
+    host, site = (urlsplit(url).hostname or "").lower(), _site(url)
+    if site in agent_cfg["no_code_domains"]:
+        return []
+    for entry in agent_cfg["code_senders"]:
+        if re.fullmatch(entry["host"], host):
+            return list(dict.fromkeys([site, *entry["senders"]]))
+    platforms = {d for entry in agent_cfg["code_senders"] for d in entry["senders"]}
+    return [] if site in platforms else [site]
 
 
 class Application:
@@ -229,12 +234,8 @@ class Application:
         self.status, self.note, self.n, self.started, self.final = None, "", 0, False, False
         self.snap, self.digests, self.base = None, [], None  # base: the page when it stopped for the owner
         self.gmail, self.now = gmail, now or (lambda: datetime.now(UTC))
-        self.times, self.codes, self.code_log, self.clicked = (
-            [],
-            set(),
-            [],
-            False,
-        )  # step start times; codes used; their senders
+        # step start times; codes used; their senders; a click this step; a click past the job page's Apply
+        self.times, self.codes, self.code_log, self.clicked, self.started_form = [], set(), [], False, False
 
     @property
     def waiting(self) -> bool:
@@ -287,8 +288,9 @@ class Application:
             self.status = "max_cost"
         if self.status:
             return
-        prompt = _prompt(
-            self.target, self.cfg, self.values, self.resume, self.history, self._scrub(snap.text)
+        # the whole prompt: the history or the page may carry a code read from the mail
+        prompt = self._scrub(
+            _prompt(self.target, self.cfg, self.values, self.resume, self.history, snap.text)
         )
         try:
             got, cost = self.llm_run(prompt, _SCHEMA, self.cfg["llm"]["models"]["apply"], writing=False)
@@ -324,11 +326,13 @@ class Application:
         why = None if self.gmail else "mail is off: run mail-login"
         if not why and not snap.code_page:
             why = "not a verification code page"
+        domains = _senders(snap.view["url"], ag)
+        if not why and not domains:
+            why = "no known mail sender for this site"
         found = None
         if not why:
             # from a minute before the step that sent the code: clocks and mail delivery differ
             after = (self.times[-2] if len(self.times) > 1 else self.times[-1]) - timedelta(seconds=60)
-            domains = _senders(snap.view["url"], ag)
             polls = int(ag["code_wait_seconds"] / ag["code_poll_seconds"])
             for i in range(polls + 1):
                 try:
@@ -371,8 +375,8 @@ class Application:
 
     def _scrub(self, text: str) -> str:
         """text without any code read from the mail: a page may show it again (a field, an error)."""
-        for code in self.codes:
-            text = text.replace(code, "[code]")
+        for code in self.codes:  # also written with spaces or dashes inside: 482 913, 482-913
+            text = re.sub(r"[\s-]?".join(map(re.escape, code)), "[code]", text)
         return text
 
     def _stopped(self) -> None:
@@ -383,7 +387,7 @@ class Application:
         with suppress(PlaywrightError):  # a broken page may take none; the terminal and trace say it
             now = read(self.page, self.cfg["apply"]["agent"])
         with suppress(PlaywrightError):
-            masks = code_masks(self.page, now, self.rules) if now and now.code_page else []
+            masks = code_masks(self.page, now, self.codes) if now else []
             path = self.log_dir / f"apply-{self.target.job_id}-{self.n}.png"
             self.page.screenshot(path=str(path), full_page=True, mask=masks)
         # after the model's own actions: they are not the owner's
@@ -501,7 +505,8 @@ class Application:
                 action = {"op": repr(action)}
             line = _line(action, snap)
             try:
-                act(page, snap, action, self.target.pdf, rules, len(self.filled), timeout)
+                apply_open = not (self.filled or self.started_form or self.handoffs)
+                kind = act(page, snap, action, self.target.pdf, rules, apply_open, timeout)
             except RefusedError as exc:
                 self.refused += 1
                 record["refused"].append(f"{line}: {exc}")
@@ -518,6 +523,7 @@ class Application:
                 continue
             record["done"].append(line)
             self.clicked = self.clicked or action["op"] == "click"
+            self.started_form = self.started_form or kind == "click"
             self.history.append(f"step {n}: done {line}")
             logged.append(_line(action, snap, short=True))
             if action["op"] in _FIELD_OPS:
