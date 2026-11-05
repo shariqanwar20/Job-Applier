@@ -165,6 +165,7 @@ _LIVE = (
     value: tag === 'input' && ['button', 'submit', 'image', 'reset'].includes(type) ? t(el.value) : '',
     title: t(el.getAttribute('title')), form: !!el.form,
     pw_form: !!(form && form.querySelector('input[type=password]')),
+    auto: (el.getAttribute('autocomplete') || '').toLowerCase(),
     disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
   };
 }"""
@@ -201,6 +202,7 @@ class ClickRules:
     raw_stems: str
     raw_sign_in: str
     raw_apply: str
+    code: re.Pattern  # a verification code field: the owner types the code
 
     @classmethod
     def from_config(cls, apply_cfg: dict) -> "ClickRules":
@@ -215,6 +217,7 @@ class ClickRules:
             _raw(apply_cfg["submit_stems"]),
             _raw(apply_cfg["sign_in_words"]),
             _raw(apply_cfg["apply_words"]),
+            words(apply_cfg["agent"]["code_words"]),
         )
 
     @staticmethod
@@ -270,6 +273,7 @@ class Snapshot:
     text: str  # view as JSON
     refs: dict[int, dict]  # ref -> the element as read, for the refs in view
     password: bool  # a visible password field: an account step
+    captcha: bool  # a captcha that is the whole page: only the owner can get past it
     missing: list[str]  # required fields still empty
 
     def label(self, ref: int) -> str:
@@ -400,7 +404,16 @@ def read(page, agent_cfg: dict) -> Snapshot:
         text = json.dumps(view, ensure_ascii=False, separators=(",", ":"))
     shown_refs = {r for _, refs in entries[: len(view["elements"])] for r in refs}
     refs = {e["ref"]: e for e in kept if e["ref"] in shown_refs}
-    return Snapshot(view, text, refs, password, _missing(kept))
+    return Snapshot(view, text, refs, password, _captcha(raw, kept, agent_cfg), _missing(kept))
+
+
+def _captcha(raw: dict, kept: list[dict], agent_cfg: dict) -> bool:
+    """A captcha frame with no form field beside it: it blocks the page. A widget inside a form (or an
+    invisible reCAPTCHA, which shows a badge) does not stop the filling; the owner ticks it before submit."""
+    hosts = [h.lower() for h in agent_cfg["captcha_hosts"]]
+    seen = [raw["url"].lower()] + [f.lower() for f in raw["frames"] if "size=invisible" not in f.lower()]
+    found = any(h in src for src in seen for h in hosts)
+    return found and not any(_is_field(e) and e["type"] != "file" for e in kept)
 
 
 def _click(root, selector: str, live: dict, rules: ClickRules, filled: int, timeout_ms: float) -> None:
@@ -439,6 +452,10 @@ def act(page, snap: Snapshot, action: dict, pdf: Path, rules: ClickRules, filled
         raise RefusedError(f"not an action: {op!r}")
     if live["type"] == "password" or live["pw_form"]:
         raise RefusedError("a password field or a form with one: the owner signs in", account=True)
+    if op == "fill" and (
+        live["auto"] == "one-time-code" or rules.code.search(norm(f"{_label(e)} {e['name']}"))
+    ):
+        raise RefusedError("a verification code: the owner types it", account=True)
     types, roles = _FITS[op]
     if live["type"] not in types and live["role"] not in roles:
         raise RefusedError(f"{op} does not fit a {live['type'] or live['role'] or live['tag']} element")

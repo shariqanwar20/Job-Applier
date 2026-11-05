@@ -47,6 +47,7 @@ def el(ref, label="", type="text", tag=None, visible=True, **kw):
         "title": "",
         "form": False,
         "pw_form": False,
+        "auto": "",
         **kw,
     }
 
@@ -87,7 +88,19 @@ class FakeLocator:
 
     def evaluate(self, script):
         e = self._el()
-        keys = ("tag", "type", "role", "aria", "labelledby", "text", "value", "title", "form", "pw_form")
+        keys = (
+            "tag",
+            "type",
+            "role",
+            "aria",
+            "labelledby",
+            "text",
+            "value",
+            "title",
+            "form",
+            "pw_form",
+            "auto",
+        )
         return {k: e[k] for k in keys} | {"disabled": e["disabled"]}
 
     def filter(self, has_text):
@@ -135,6 +148,8 @@ class FakePage:
         self.at, self.url = 0, url
         self.done, self.clicks, self.banners, self.waits, self.shots, self.frames = [], [], [], [], [], []
         self.broken = None  # an exception the next snapshot raises
+        self.on_wait = None  # called with each wait's ms: the owner acting while JobApplier waits
+        self.fronted = 0
         self.context = SimpleNamespace(pages=[self])
 
     def __deepcopy__(self, memo):
@@ -152,6 +167,11 @@ class FakePage:
 
     def wait_for_timeout(self, ms):
         self.waits.append(ms)
+        if self.on_wait:
+            self.on_wait(ms)
+
+    def bring_to_front(self):
+        self.fronted += 1
 
     def screenshot(self, path, full_page):
         assert full_page
@@ -192,6 +212,21 @@ class FakeLlm:
         if isinstance(got, Exception):
             raise got
         return got, self.cost
+
+
+CAPTCHA = state(
+    frames=["iframe https://geo.captcha-delivery.com/captcha/?initialCid=x"], title="acme.example"
+)
+
+
+def owner_goes_to(page, at, poll_ms=3000):
+    """The owner does the step during the first poll: the page moves to state at."""
+
+    def on_wait(ms):
+        if ms == poll_ms:
+            page.at = at
+
+    page.on_wait = on_wait
 
 
 def answer(*actions, status="continue", note=""):

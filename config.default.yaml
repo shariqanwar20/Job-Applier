@@ -97,6 +97,16 @@ apply:  # `apply` runs one Haiku agent per ready row in Chrome; you check the fo
     description_chars: 3000        # of the job description, in the prompt
     settle_seconds: 1.5            # after each step's actions, for the page to redraw
     unchanged_steps: 3             # the same page this many snapshots in a row stops the loop
+    # Hand-off: at a sign-in or account step, a question it cannot answer, or a captcha that is the whole
+    # page (a visible frame from one of captcha_hosts, with no form fields beside it), the tab waits for you.
+    # It polls every poll_seconds for up to wait_for_owner_seconds; once the page has changed and stays the
+    # same for one poll, with no password field or captcha left, the loop goes on. At most max_handoffs.
+    poll_seconds: 3
+    wait_for_owner_seconds: 300
+    max_handoffs: 3
+    captcha_hosts: [captcha-delivery.com, hcaptcha.com, google.com/recaptcha, recaptcha.net, challenges.cloudflare.com, arkoselabs]
+    # A field with one of these words, or autocomplete="one-time-code", is never typed into: you type the code.
+    code_words: [verification code, verify code, security code, confirmation code, one time code, one time password, one time passcode, otp, passcode, 6 digit code, six digit code, authentication code]
   # The click guard, in code: a control is never clicked when any source of its name (aria-label,
   # labelled-by text, text, value, title) has a word starting with one of submit_stems, a sign_in_words
   # word, or a non-Latin look-alike letter. An apply_words control is clicked only while nothing is filled

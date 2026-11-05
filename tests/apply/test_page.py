@@ -321,6 +321,45 @@ def test_an_action_that_does_not_fit_the_element_is_refused(element, action, age
     assert page.done == [] and page.clicks == []
 
 
+@pytest.mark.parametrize(
+    "element",
+    [el(1, "Verification code"), el(1, "Enter the 6-digit code", auto="one-time-code"), el(1, "OTP")],
+)
+def test_a_verification_code_is_never_typed(element, agent_cfg, rules):
+    page = FakePage([state(element)])
+    with pytest.raises(RefusedError) as info:
+        run_act(agent_cfg, rules, page, {"op": "fill", "ref": 1, "value": "123456"})
+    assert info.value.account and page.done == []
+
+
+def test_postal_code_is_not_a_verification_code(agent_cfg, rules):
+    page = FakePage([state(el(1, "Postal code"))])
+    run_act(agent_cfg, rules, page, {"op": "fill", "ref": 1, "value": "M5V 1A1"})
+    assert page.done == [("fill", 1, "M5V 1A1")]
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        "iframe https://geo.captcha-delivery.com/captcha/?x=1",
+        "iframe https://newassets.hcaptcha.com/captcha/v1/x",
+        "iframe https://www.google.com/recaptcha/api2/anchor?k=x&size=normal",
+        "iframe https://challenges.cloudflare.com/cdn-cgi/challenge-platform/x",
+        "iframe https://client-api.arkoselabs.com/fc/x",
+    ],
+)
+def test_a_captcha_that_is_the_whole_page_is_found(frame, agent_cfg):
+    assert snap(agent_cfg, btn(1, "Back"), frames=[frame]).captcha
+
+
+def test_an_invisible_recaptcha_or_a_captcha_widget_beside_a_form_is_not_a_blocker(agent_cfg):
+    invisible = "iframe https://www.google.com/recaptcha/api2/anchor?k=x&size=invisible"
+    assert not snap(agent_cfg, frames=[invisible]).captcha
+    widget = "iframe https://newassets.hcaptcha.com/captcha/v1/x"
+    assert not snap(agent_cfg, el(1, "Email"), frames=[widget]).captcha  # the owner ticks it before submit
+    assert not snap(agent_cfg, frames=["iframe https://www.youtube.com/embed/x"]).captcha
+
+
 def test_a_hidden_radio_is_checked_through_its_visible_label(agent_cfg, rules):
     page = FakePage([state({**el(1, "Yes", type="radio", name="r"), "seen": False, "labels": [SHOWN]})])
     run_act(agent_cfg, rules, page, {"op": "check", "ref": 1})
