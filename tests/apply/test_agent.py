@@ -4,12 +4,12 @@ import logging
 import pytest
 from playwright.sync_api import Error as PlaywrightError
 
-from jobapplier.apply.agent import resume_text, run_application
+from jobapplier.apply.agent import Application, resume_text
 from jobapplier.apply.page import ClickRules
 from jobapplier.apply.targets import Target
 from jobapplier.llm import LlmError
 from jobapplier.resume.master import parse
-from tests.apply.fakes import FakeLlm, FakePage, answer, btn, el, link, state
+from tests.apply.fakes import CAPTCHA, FakeLlm, FakePage, answer, btn, el, link, owner_goes_to, state
 
 VALUES = {"name.first": "Alex", "email": "alex@example.com", "phone": "+1 416 555 0100"}
 RESUME = "Experience\n- RESUME-LINE built a billing service"
@@ -36,10 +36,16 @@ def job(config, tmp_path):
     return target, config, tmp_path / "logs"
 
 
-def run(job, page, llm):
+def make(job, page, llm):
     target, cfg, logs = job
-    rules = ClickRules.from_config(cfg["apply"])
-    return run_application(page, target, cfg, VALUES, RESUME, llm, rules, logs)
+    return Application(page, target, cfg, VALUES, RESUME, llm, ClickRules.from_config(cfg["apply"]), logs)
+
+
+def run(job, page, llm):
+    """One loop to its first stop, with no waiting for the owner."""
+    app = make(job, page, llm)
+    app.advance()
+    return app.finish()
 
 
 def test_it_starts_the_application_fills_uploads_clicks_next_and_stops_at_ready_to_submit(job):
@@ -252,3 +258,95 @@ def test_the_screenshot_is_taken_on_every_stop(job):
 def test_resume_text_lists_the_master_lines_by_section():
     tex = "\\section{Experience}\n\\item Built billing % id:a\n\\section{Skills}\nPython % id:b\n"
     assert resume_text(parse(tex)) == "Experience\n- Built billing\n\nSkills\n- Python"
+
+
+# --- hand-off to the owner ---
+
+
+def test_a_captcha_hands_off_without_a_model_call(job):
+    page = FakePage([CAPTCHA])
+    llm = FakeLlm([answer(status="ready_to_submit")])
+    app = make(job, page, llm)
+    app.advance()
+    assert app.status == "captcha" and app.waiting and llm.calls == []
+    result = app.finish()  # with no waiting, the captcha is where it ends
+    assert result["status"] == "captcha" and "captcha" in page.banners[-1][0]
+
+
+def test_the_owner_doing_the_step_resumes_the_same_loop(job):
+    _, _, logs = job
+    page = FakePage([CAPTCHA, FORM])
+    owner_goes_to(page, 1)
+    llm = FakeLlm([answer({"op": "fill", "ref": 4, "value": "Alex"}, status="ready_to_submit")])
+    app = make(job, page, llm)
+    app.advance()
+    assert app.wait_for_owner()
+    head, lines = page.banners[0]
+    assert head.startswith("JobApplier needs you:")
+    assert lines == ["Do it in this tab; JobApplier continues when the page changes."]
+    assert page.fronted == 1
+    app.advance()
+    assert app.status == "ready_to_submit" and page.done == [("fill", 4, "Alex")]
+    assert "step 1: the owner did the captcha step" in llm.calls[0]["prompt"]
+    app.finish()
+    trace = json.loads((logs / "apply-J7.json").read_text())
+    [handoff] = trace["handoffs"]
+    assert handoff["step"] == 1 and handoff["status"] == "captcha" and handoff["resumed"]
+    assert handoff["waited_seconds"] == 6  # changed at the first poll, the same at the second
+    assert [s["step"] for s in trace["steps"]] == [2]  # the step budget carries over
+
+
+def test_a_model_hand_off_waits_for_the_page_to_change_after_its_own_actions(job):
+    page = FakePage([state(el(1, "Email"), el(2, "Code"))])
+    llm = FakeLlm([answer({"op": "fill", "ref": 1, "value": "alex@example.com"}, status="needs_account")])
+    app = make(job, page, llm)
+    app.advance()
+    assert app.status == "needs_account" and app.waiting
+    job[1]["apply"]["agent"]["wait_for_owner_seconds"] = 6
+    assert not app.wait_for_owner()  # its own fill is not the owner's change
+
+
+def test_no_change_before_the_timeout_ends_the_loop_as_needs_owner(job):
+    _, cfg, logs = job
+    cfg["apply"]["agent"]["wait_for_owner_seconds"] = 9
+    page = FakePage([CAPTCHA])
+    app = make(job, page, FakeLlm([answer()]))
+    app.advance()
+    assert not app.wait_for_owner()
+    assert app.status == "needs_owner" and not app.waiting and page.waits.count(3000) == 3
+    result = app.finish()
+    assert result["status"] == "needs_owner"
+    [handoff] = json.loads((logs / "apply-J7.json").read_text())["handoffs"]
+    assert handoff["waited_seconds"] == 9 and not handoff["resumed"]
+
+
+def test_a_page_that_still_has_a_password_field_does_not_resume(job):
+    _, cfg, _ = job
+    cfg["apply"]["agent"]["wait_for_owner_seconds"] = 9
+    page = FakePage([state(el(1, "Password", type="password")), state(el(2, "Password", type="password"))])
+    owner_goes_to(page, 1)
+    app = make(job, page, FakeLlm([answer()]))
+    app.advance()
+    assert app.status == "needs_account" and not app.wait_for_owner()
+
+
+def test_max_handoffs_is_respected(job):
+    _, cfg, _ = job
+    cfg["apply"]["agent"]["max_handoffs"] = 2
+    page = FakePage([state(el(1, "Why us?", required=True))])
+    polls = []
+
+    def owner_types(ms):  # a change at every other poll, so each change is stable for one poll
+        if ms == 3000:
+            polls.append(ms)
+            if len(polls) % 2:
+                page.state["elements"][0]["value"] += "x"
+
+    page.on_wait = owner_types
+    llm = FakeLlm([answer(status="needs_owner", note="Why us? is not in my profile")])
+    app = make(job, page, llm)
+    app.advance()
+    while app.waiting:
+        assert app.wait_for_owner()
+        app.advance()
+    assert len(llm.calls) == 3 and app.status == "needs_owner" and len(app.handoffs) == 2

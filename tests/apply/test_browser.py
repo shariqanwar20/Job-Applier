@@ -38,3 +38,4 @@ def test_the_banner_is_drawn_with_its_head_and_lines():
     page = FakePage([state()])
     banner(page, "Head", ["one", "two"])
     assert page.banners == [["Head", ["one", "two"]]]
+    assert "getElementById('jobapplier-banner')" in browser._BANNER  # a new note replaces the old one

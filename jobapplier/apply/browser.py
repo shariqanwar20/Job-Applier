@@ -11,7 +11,10 @@ __all__ = ["LOGIN_NOTE", "banner", "chrome"]
 LOGIN_NOTE = "Sign in or create the account yourself; JobApplier does not handle passwords."
 # Plain DOM, so it works on any page; clicking it removes it.
 _BANNER = """([head, lines]) => {
+  const old = document.getElementById('jobapplier-banner');  // a new note replaces the last one
+  if (old) old.remove();
   const b = document.createElement('div');
+  b.id = 'jobapplier-banner';
   b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#fff3cd;'
     + 'color:#222;border-bottom:2px solid #c90;padding:10px 16px;font:14px/1.4 system-ui,sans-serif;'
     + 'cursor:pointer;max-height:40vh;overflow:auto';

@@ -415,6 +415,19 @@ def test_apply_no_prompt_asks_nothing(home, monkeypatch, rules):
     assert n.rows["p1"]["Status"] == {"select": {"name": "Tailored"}}
 
 
+@pytest.mark.parametrize(
+    ("flags", "prompt", "wait"),
+    [([], True, True), (["--no-wait"], True, False), (["--no-prompt"], False, False)],
+)
+def test_no_prompt_implies_no_wait(flags, prompt, wait, home, monkeypatch, rules):
+    root, _ = home
+    _apply_home(root, rules, monkeypatch)
+    got = {}
+    monkeypatch.setattr(app, "run_apply", lambda *a, **kw: got.update(kw) or {})
+    assert app.main(["apply", *flags]) == 0
+    assert (got["prompt"], got["wait"]) == (prompt, wait)
+
+
 def test_apply_without_a_master_resume_says_so(home, monkeypatch, rules, capsys):
     root, _ = home
     _apply_home(root, rules, monkeypatch)

@@ -9,7 +9,7 @@ from jobapplier.core.identity import posting_identity
 from jobapplier.models import Posting
 from jobapplier.pipelines import apply as pipeline
 from jobapplier.pipelines.apply import run_apply
-from tests.apply.fakes import FakeLlm, FakePage, answer, el, state
+from tests.apply.fakes import CAPTCHA, FakeLlm, FakePage, answer, el, owner_goes_to, state
 from tests.conftest import FakeNotion
 
 VALUES = {"name.first": "Alex", "email": "alex@example.com"}
@@ -84,7 +84,7 @@ def llm():
     )
 
 
-def run(home, answers, pages=None, job_id=None, prompt=True):
+def run(home, answers, pages=None, job_id=None, prompt=True, wait=True, model=None):
     tmp, cfg, rules, conn, n = home
     ctx = FakeContext(pages or [email_page() for _ in range(3)])
 
@@ -107,13 +107,14 @@ def run(home, answers, pages=None, job_id=None, prompt=True):
         VALUES,
         "RESUME",
         fake_browser,
-        llm(),
+        model or llm(),
         tmp / "logs",
         job_id,
         ask=ask,
         say=said.append,
         today=lambda: date(2026, 11, 4),
         prompt=prompt,
+        wait=wait,
     )
     return result, ctx, asked, said
 
@@ -176,18 +177,16 @@ def test_nothing_ready_opens_no_browser(home):
     assert result == {"opened": 0, "skipped": 0, "submitted": 0} and said == ["Nothing ready to apply."]
 
 
-def test_a_tab_that_fails_to_load_is_reported_and_the_rest_still_open(home, monkeypatch):
-    calls = []
+def test_a_tab_that_fails_to_load_is_reported_and_the_rest_still_open(home):
+    failing = email_page()
 
-    def fake_run(page, target, *a):
-        calls.append(target.job_id)
-        if target.job_id == "J1":
-            raise RuntimeError("net::ERR_NAME_NOT_RESOLVED")
-        return {"status": "needs_account", "note": "", "filled": 0, "missing": [], "cost": 0.0}
+    def goto(url, wait_until, timeout):
+        raise RuntimeError("net::ERR_NAME_NOT_RESOLVED")
 
-    monkeypatch.setattr(pipeline, "run_application", fake_run)
-    _, _, asked, said = run(home, ["", "n", "n"])
-    assert calls == ["J1", "J3"] and len(asked) == 3
+    failing.goto = goto
+    login = FakePage([state(el(1, "Password", type="password"))])
+    _, _, asked, said = run(home, ["", "n", "n"], pages=[failing, login], wait=False)
+    assert len(asked) == 3
     assert any("J1 (PRI)" in line and "ERR_NAME_NOT_RESOLVED" in line for line in said)
     assert any(
         line.startswith("opened J3 (Acme)") and "sign in or create the account yourself" in line
@@ -213,12 +212,12 @@ def test_end_of_input_counts_as_no(home):
 
 
 def test_the_pipeline_uses_the_real_loop():
-    assert pipeline.run_application is agent.run_application
+    assert pipeline.Application is agent.Application
 
 
 def test_the_opened_line_says_why_it_stopped_what_is_left_and_the_cost(home, monkeypatch):
     result = {"status": "stuck", "note": "", "filled": 7, "missing": ["Why us?"], "cost": 0.1234}
-    monkeypatch.setattr(pipeline, "run_application", lambda *a: result)
+    monkeypatch.setattr(agent.Application, "finish", lambda self: result)
     _, _, _, said = run(home, ["", "n", "n"])
     assert any(
         line.startswith("opened J1 (PRI)")
@@ -295,3 +294,26 @@ def test_a_restored_tab_is_left_alone_and_a_new_one_opened(home):
     pages = [restored, email_page(), email_page()]
     _, ctx, _, _ = run(home, ["", "n", "n"], pages=pages)
     assert restored.url == "https://mail.example.com/inbox" and ctx.made == 2
+
+
+def by_company(model):
+    return ["PRI" if "at PRI" in c["prompt"] else "Acme" for c in model.calls]
+
+
+def test_applications_waiting_for_the_owner_get_a_second_pass_after_the_others_are_filled(home):
+    captcha = FakePage([CAPTCHA, state(el(1, "Email"))])
+    owner_goes_to(captcha, 1)
+    model = llm()
+    model.answers = [answer({"op": "fill", "ref": 1, "value": "alex@example.com"}, status="ready_to_submit")]
+    _, _, _, said = run(home, ["", "n", "n"], pages=[captcha, email_page()], model=model)
+    assert by_company(model) == ["Acme", "PRI"]  # J1 (PRI) waited until J3 (Acme) was filled
+    assert captcha.fronted >= 1 and captcha.done == [("fill", 1, "alex@example.com")]
+    assert any(line.startswith("J1 (PRI) needs you in its tab") for line in said)
+    assert any(line.startswith("opened J1 (PRI)") and "ready for you to submit" in line for line in said)
+
+
+def test_no_wait_finishes_a_waiting_application_without_polling(home):
+    captcha = FakePage([CAPTCHA])
+    _, _, _, said = run(home, ["", "n", "n"], pages=[captcha, email_page()], wait=False)
+    assert 3000 not in captcha.waits and captcha.fronted == 0
+    assert any(line.startswith("opened J1 (PRI)") and "captcha" in line for line in said)

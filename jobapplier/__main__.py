@@ -64,6 +64,9 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="ask nothing and mark nothing Submitted; close Chrome when done",
     )
+    apply.add_argument(
+        "--no-wait", action="store_true", help="never wait for you at a sign-in, code or captcha"
+    )
     commands.add_parser("install-agent", help="run `run` every 30 minutes via a launchd LaunchAgent")
     commands.add_parser("uninstall-agent", help="remove the LaunchAgent")
     args = parser.parse_args(argv)
@@ -87,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         return _run()
     if args.command == "apply":
-        return _apply(args.job, prompt=not args.no_prompt)
+        return _apply(args.job, prompt=not args.no_prompt, wait=not (args.no_wait or args.no_prompt))
     return _discover()
 
 
@@ -129,7 +132,7 @@ def _notify_ready() -> int:
         return 1
 
 
-def _apply(job_id: str | None, prompt: bool = True) -> int:
+def _apply(job_id: str | None, prompt: bool = True, wait: bool = True) -> int:
     """Interactive, so no lock: it only reads SQLite and sets Status in Notion."""
     cfg = load_config(_ROOT)
     token = _notion_token(cfg)
@@ -166,6 +169,7 @@ def _apply(job_id: str | None, prompt: bool = True) -> int:
             job_id,
             input,
             prompt=prompt,
+            wait=wait,
         )
     except NotionError as exc:
         print(f"notion: {exc}")

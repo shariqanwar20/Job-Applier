@@ -21,10 +21,11 @@ from jobapplier.apply.targets import Target
 from jobapplier.llm import LlmError
 from jobapplier.resume.master import Item, plain
 
-__all__ = ["describe", "resume_text", "run_application"]
+__all__ = ["Application", "describe", "resume_text"]
 
 _log = logging.getLogger("jobapplier")
 _FIELD_OPS = frozenset({"fill", "select", "check", "uncheck", "upload"})
+_HANDOFFS = frozenset({"needs_account", "needs_owner", "captcha"})  # stops the owner can get past
 _LOG_VALUE_MAX = 80  # longer values are free-text answers: the log gets their length only
 _SCHEMA = {
     "type": "object",
@@ -100,7 +101,9 @@ _STOPS = {
     "max_cost": "stopped at apply.agent.max_cost_usd (${max_cost_usd:.2f})",
     "llm_error": "the model call failed",
     "page_error": "the page broke",
+    "captcha": "a captcha: solve it yourself",
 }
+_WAIT_LINE = "Do it in this tab; JobApplier continues when the page changes."
 
 
 def describe(status: str, agent_cfg: dict) -> str:
@@ -155,15 +158,186 @@ def _line(action: dict, snap: Snapshot, short: bool = False) -> str:
     return f"{action.get('op')} {ref}{where}" + (f" = {value}" if value is not None else "")
 
 
-class _Run:
-    """What one application's loop has done so far."""
+def _digest(snap: Snapshot) -> str:
+    return hashlib.sha256(snap.text.encode()).hexdigest()
 
-    def __init__(self, target: Target):
-        self.target, self.history, self.steps = target, [], []
+
+class Application:
+    """One application's loop in its tab. advance() runs it to its next stop; at a hand-off stop
+    (waiting), wait_for_owner() waits for the owner to do the step, and advance() goes on with the same
+    history, step count and cost. finish() leaves the final note, trace and result.
+
+    llm_run(prompt, schema, model, writing) returns (answer, cost in USD), like llm.run_with_cost.
+    """
+
+    def __init__(
+        self, page, target: Target, cfg: dict, values: dict, resume: str, llm_run, rules: ClickRules, log_dir
+    ):
+        self.page, self.target, self.cfg, self.values, self.resume = page, target, cfg, values, resume
+        self.llm_run, self.rules, self.log_dir = llm_run, rules, Path(log_dir)
+        self.history, self.steps, self.handoffs = [], [], []
         self.filled, self.answers, self.uploaded, self.refused, self.cost = [], [], False, 0, 0.0
+        self.status, self.note, self.n, self.started, self.final = None, "", 0, False, False
+        self.snap, self.digests, self.base = None, [], None  # base: the page when it stopped for the owner
 
-    def step(self, n: int, page, snap: Snapshot, got: dict, cost: float, rules, values, timeout: float):
+    @property
+    def waiting(self) -> bool:
+        ag = self.cfg["apply"]["agent"]
+        return self.status in _HANDOFFS and not self.final and len(self.handoffs) < ag["max_handoffs"]
+
+    def advance(self) -> None:
+        """Runs the loop until it stops; self.status says why. Never on a submit button."""
+        a = self.cfg["apply"]
+        self.status, self.note = None, ""
+        try:
+            if not self.started:
+                self.started = True
+                self.page.goto(
+                    self.target.url, wait_until="domcontentloaded", timeout=a["load_timeout_seconds"] * 1000
+                )
+                _settle(self.page, self.cfg)
+            while self.status is None:
+                self._turn()
+        except PlaywrightError as exc:  # the page navigated, closed or redrew under the loop
+            self.status, self.note = "page_error", f"{type(exc).__name__}: {str(exc)[:200]}"
+        self._stopped()
+
+    def _turn(self) -> None:
+        """One step: a snapshot, the stop checks, one model call and its actions. Sets status to stop."""
+        ag = self.cfg["apply"]["agent"]
+        if self.n >= ag["max_steps"]:
+            self.status = "max_steps"
+            return
+        self.n += 1
+        snap = self.snap = read(self.page, ag)
+        self.digests = [*self.digests, _digest(snap)][-ag["unchanged_steps"] :]
+        if snap.password:
+            self.status = "needs_account"
+        elif snap.captcha:
+            self.status, self.note = "captcha", "solve the captcha"
+        elif len(self.digests) == ag["unchanged_steps"] and len(set(self.digests)) == 1:
+            self.status = "stuck"
+        elif self.cost >= ag["max_cost_usd"]:
+            self.status = "max_cost"
+        if self.status:
+            return
+        prompt = _prompt(self.target, self.cfg, self.values, self.resume, self.history, snap)
+        try:
+            got, cost = self.llm_run(prompt, _SCHEMA, self.cfg["llm"]["models"]["apply"], writing=False)
+        except LlmError as exc:
+            self.status, self.note = "llm_error", str(exc)
+            return
+        before, uploaded = list(self.page.context.pages), self.uploaded
+        if self._step(snap, got, cost):
+            self.status, self.note = "needs_account", "a password or verification code field"
+        elif got.get("status", "continue") != "continue":
+            self.status, self.note = got["status"], got.get("note", "")
+        else:
+            opened = [p for p in self.page.context.pages if p not in before]
+            if opened:  # an Apply link that opens the form in a new tab
+                self.page = opened[-1]
+                self.history.append(f"step {self.n}: a new tab opened ({self.page.url}); going on there")
+            _settle(self.page, self.cfg, uploaded=self.uploaded and not uploaded)
+
+    def _stopped(self) -> None:
+        """At every stop: a screenshot, the trace so far, and for a hand-off the page to compare with."""
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self._write_trace()
+        with suppress(PlaywrightError):  # a broken page may take none; the terminal and trace say it
+            path = self.log_dir / f"apply-{self.target.job_id}-{self.n}.png"
+            self.page.screenshot(path=str(path), full_page=True)
+        self.base = None
+        if self.status in _HANDOFFS:
+            with suppress(PlaywrightError):  # after the model's own actions: they are not the owner's
+                self.base = _digest(read(self.page, self.cfg["apply"]["agent"]))
+
+    def ask_owner(self) -> None:
+        with suppress(PlaywrightError):
+            self.page.bring_to_front()
+            what = (self.note or describe(self.status, self.cfg["apply"]["agent"])).rstrip(".")
+            banner(self.page, f"JobApplier needs you: {what}.", [_WAIT_LINE])
+
+    def wait_for_owner(self) -> bool:
+        """Polls until the page has changed from where it stopped and stayed the same for one poll (the
+        owner is done, not mid-typing), with no password field or captcha left. True: the owner did the
+        step and the loop may go on. False: the wait timed out, and the application ends as needs_owner.
+        The owner, never this code, solves the captcha or types the code."""
+        ag = self.cfg["apply"]["agent"]
+        self.ask_owner()
+        polls, last, waited = max(1, int(ag["wait_for_owner_seconds"] / ag["poll_seconds"])), None, 0
+        for i in range(1, polls + 1):
+            self.page.wait_for_timeout(ag["poll_seconds"] * 1000)
+            waited = i * ag["poll_seconds"]
+            try:
+                snap = read(self.page, ag)
+            except PlaywrightError:  # a reload in progress
+                last = None
+                continue
+            now = _digest(snap)
+            if now != self.base and now == last and not (snap.password or snap.captcha):
+                self._handoff(waited, resumed=True)
+                self.history.append(f"step {self.n}: the owner did the {self.status} step")
+                self.digests = []
+                return True
+            last = now
+        self._handoff(waited, resumed=False)
+        self.note = f"no change in {waited}s after: {self.note or describe(self.status, ag)}"
+        self.status, self.final = "needs_owner", True
+        return False
+
+    def _handoff(self, waited: float, resumed: bool) -> None:
+        record = {"step": self.n, "status": self.status, "note": self.note}
+        self.handoffs.append(record | {"waited_seconds": waited, "resumed": resumed})
+        _log.info(
+            "apply %s: hand-off at step %d (%s), waited %ss", self.target.job_id, self.n, self.status, waited
+        )
+
+    def _write_trace(self) -> Path:
+        # The trace holds the model's answers but never the profile or resume it was given.
+        t = self.target
+        trace = self.log_dir / f"apply-{t.job_id}.json"
+        record = {
+            "job": t.job_id,
+            "company": t.company,
+            "url": t.url,
+            "status": self.status,
+            "note": self.note,
+        }
+        record |= {"cost": self.cost, "handoffs": self.handoffs, "steps": self.steps}
+        trace.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+        return trace
+
+    def finish(self) -> dict:
+        """The final note on the page, the trace and the result: {"status", "note", "filled": n, "missing":
+        [labels], "answers": [(label, text)], "steps": n, "cost": usd}."""
+        ag = self.cfg["apply"]["agent"]
+        try:
+            missing = read(self.page, ag).missing
+        except PlaywrightError:
+            missing = self.snap.missing if self.snap else []
+        _log.info("apply %s: %s after %d steps, $%.4f", self.target.job_id, self.status, self.n, self.cost)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        trace = self._write_trace()
+        with suppress(PlaywrightError):
+            head = (
+                LOGIN_NOTE if self.status == "needs_account" else f"JobApplier: {describe(self.status, ag)}."
+            )
+            lines = _banner_lines(self, self.note, missing, trace)
+            banner(self.page, f"{head} Check every page, then submit yourself.", lines)
+        return {
+            "status": self.status,
+            "note": self.note,
+            "filled": len(self.filled),
+            "missing": missing,
+            "answers": self.answers,
+            "steps": self.n,
+            "cost": self.cost,
+        }
+
+    def _step(self, snap: Snapshot, got: dict, cost: float) -> bool:
         """Does the step's actions; True when one was refused as a sign-in or account step."""
+        n, page, rules, values = self.n, self.page, self.rules, self.values
+        timeout = self.cfg["apply"]["field_timeout_seconds"] * 1000
         actions = got.get("actions") or []
         record = {
             "step": n,
@@ -221,7 +395,7 @@ class _Run:
         return account
 
 
-def _banner_lines(run: _Run, note: str, missing: list[str], trace: Path) -> list[str]:
+def _banner_lines(run: Application, note: str, missing: list[str], trace: Path) -> list[str]:
     t = run.target
     lines = [f"Note: {note}"] if note else []
     if run.filled:
@@ -238,80 +412,3 @@ def _banner_lines(run: _Run, note: str, missing: list[str], trace: Path) -> list
     if run.refused:
         lines.append(f"The guards refused {run.refused} actions; see {trace}.")
     return lines
-
-
-def run_application(
-    page, target: Target, cfg: dict, values: dict, resume: str, llm_run, rules: ClickRules, log_dir: Path
-) -> dict:
-    """Opens target.url in page and runs the agent until it stops, then leaves a note on the page, a
-    screenshot and a JSON trace in log_dir. Never on a submit button: the owner submits.
-
-    llm_run(prompt, schema, model, writing) returns (answer, cost in USD), like llm.run_with_cost.
-    Returns {"status", "note", "filled": n, "missing": [labels], "answers": [(label, text)], "steps": n,
-    "cost": usd}.
-    """
-    a, ag = cfg["apply"], cfg["apply"]["agent"]
-    timeout = a["field_timeout_seconds"] * 1000
-    run, status, note, snap, n, digests = _Run(target), "max_steps", "", None, 0, []
-    try:
-        page.goto(target.url, wait_until="domcontentloaded", timeout=a["load_timeout_seconds"] * 1000)
-        _settle(page, cfg)
-        for n in range(1, ag["max_steps"] + 1):
-            snap = read(page, ag)
-            digests = [*digests, hashlib.sha256(snap.text.encode()).hexdigest()][-ag["unchanged_steps"] :]
-            if snap.password:
-                status = "needs_account"
-                break
-            if len(digests) == ag["unchanged_steps"] and len(set(digests)) == 1:
-                status = "stuck"
-                break
-            if run.cost >= ag["max_cost_usd"]:
-                status = "max_cost"
-                break
-            prompt = _prompt(target, cfg, values, resume, run.history, snap)
-            try:
-                got, cost = llm_run(prompt, _SCHEMA, cfg["llm"]["models"]["apply"], writing=False)
-            except LlmError as exc:
-                status, note = "llm_error", str(exc)
-                break
-            before, uploaded = list(page.context.pages), run.uploaded
-            if run.step(n, page, snap, got, cost, rules, values, timeout):
-                status, note = "needs_account", "a password field or a form with one"
-                break
-            if got.get("status", "continue") != "continue":
-                status, note = got["status"], got.get("note", "")
-                break
-            opened = [p for p in page.context.pages if p not in before]
-            if opened:  # an Apply link that opens the form in a new tab
-                page = opened[-1]
-                run.history.append(f"step {n}: a new tab opened ({page.url}); going on there")
-            _settle(page, cfg, uploaded=run.uploaded and not uploaded)
-    except PlaywrightError as exc:  # the page navigated, closed or redrew under the loop
-        status, note = "page_error", f"{type(exc).__name__}: {str(exc)[:200]}"
-    try:
-        missing = read(page, ag).missing
-    except PlaywrightError:
-        missing = snap.missing if snap else []
-    _log.info("apply %s: %s after %d steps, $%.4f", target.job_id, status, n, run.cost)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    trace = log_dir / f"apply-{target.job_id}.json"
-    # The trace holds the model's answers but never the profile or resume it was given.
-    record = {"job": target.job_id, "company": target.company, "url": target.url, "status": status}
-    record |= {"note": note, "cost": run.cost, "steps": run.steps}
-    trace.write_text(json.dumps(record, indent=2, ensure_ascii=False))
-    with suppress(PlaywrightError):  # a broken page may take neither; the terminal and trace say it
-        page.screenshot(path=str(log_dir / f"apply-{target.job_id}-{n}.png"), full_page=True)
-    with suppress(PlaywrightError):
-        head = LOGIN_NOTE if status == "needs_account" else f"JobApplier: {describe(status, ag)}."
-        banner(
-            page, f"{head} Check every page, then submit yourself.", _banner_lines(run, note, missing, trace)
-        )
-    return {
-        "status": status,
-        "note": note,
-        "filled": len(run.filled),
-        "missing": missing,
-        "answers": run.answers,
-        "steps": n,
-        "cost": run.cost,
-    }
