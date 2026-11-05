@@ -206,12 +206,27 @@ def test_a_page_that_breaks_stops_the_loop(job):
 
 
 def test_a_tab_opened_by_a_click_is_followed(job):
-    form = FakePage([FORM])
+    form = FakePage([FORM], url="https://apply.acme.example/form")
     page = FakePage([state(btn(2, "Apply now", opens=form))])
     llm = FakeLlm([answer({"op": "click", "ref": 2}), answer(status="ready_to_submit")])
     run(job, page, llm)
     assert form.banners and not page.banners
     assert '"First name"' in llm.calls[1]["prompt"]
+    assert "a new tab opened on apply.acme.example" in llm.calls[1]["prompt"]
+
+
+def test_a_tab_this_step_did_not_open_is_not_followed(job):
+    popup = FakePage([FORM])  # an ad or a chat window the page opened by itself
+    page = FakePage([state(el(1, "City"), btn(2, "Next"))])
+    llm = FakeLlm([answer({"op": "fill", "ref": 1, "value": "Toronto"}), answer(status="ready_to_submit")])
+    original = llm.__call__
+
+    def opens_a_popup(*a, **kw):
+        page.context.pages.append(popup)
+        return original(*a, **kw)
+
+    run(job, page, opens_a_popup)
+    assert page.banners and not popup.banners
 
 
 def test_a_failed_action_is_recorded_and_the_loop_goes_on(job):
@@ -315,7 +330,8 @@ def test_the_owner_doing_the_step_resumes_the_same_loop(job):
     trace = json.loads((logs / "apply-J7.json").read_text())
     [handoff] = trace["handoffs"]
     assert handoff["step"] == 1 and handoff["status"] == "captcha" and handoff["resumed"]
-    assert handoff["waited_seconds"] == 6  # changed at the first poll, the same at the second
+    assert handoff["waited_seconds"] == 9  # changed at the first poll, then the same for 3 polls
+    assert page.cleared == 1  # the note asking for the owner is taken off on resume
     assert [s["step"] for s in trace["steps"]] == [2]  # the step budget carries over
 
 
@@ -359,10 +375,10 @@ def test_max_handoffs_is_respected(job):
     page = FakePage([state(el(1, "Why us?", required=True))])
     polls = []
 
-    def owner_types(ms):  # a change at every other poll, so each change is stable for one poll
+    def owner_types(ms):  # one change, then the same page for 3 polls
         if ms == 3000:
             polls.append(ms)
-            if len(polls) % 2:
+            if len(polls) % 4 == 1:
                 page.state["elements"][0]["value"] += "x"
 
     page.on_wait = owner_types
@@ -373,6 +389,27 @@ def test_max_handoffs_is_respected(job):
         assert app.wait_for_owner()
         app.advance()
     assert len(llm.calls) == 3 and app.status == "needs_owner" and len(app.handoffs) == 2
+
+
+def test_apply_after_a_hand_off_is_refused_when_the_owner_filled_the_page(job):
+    page = FakePage([CAPTCHA, state(el(1, "First name", value="Alex"), btn(2, "Apply"))])
+    owner_goes_to(page, 1)
+    llm = FakeLlm([answer({"op": "click", "ref": 2}), answer(status="ready_to_submit")])
+    app = make(job, page, llm)
+    app.advance()
+    assert app.wait_for_owner()
+    app.advance()
+    assert page.clicks == [] and "REFUSED click 2 (Apply)" in llm.calls[1]["prompt"]
+
+
+def test_a_headline_or_error_change_alone_does_not_resume(job):
+    _, cfg, _ = job
+    cfg["apply"]["agent"]["wait_for_owner_seconds"] = 15
+    page = FakePage([CAPTCHA, {**CAPTCHA, "errors": ["Try again"], "headings": ["Checking your browser"]}])
+    owner_goes_to(page, 1)
+    app = make(job, page, FakeLlm([answer()]))
+    app.advance()
+    assert not app.wait_for_owner()
 
 
 # --- verification codes from the owner's mail ---
@@ -409,7 +446,7 @@ def test_a_code_from_the_mail_is_filled_digit_by_digit_and_verified_without_a_mo
     assert page.clicks == ["Next", "Verify"] and result["status"] == "ready_to_submit"
     assert len(llm.calls) == 2  # the code page took no model call
     domains, after = gmail.calls[0]
-    assert domains[0] == "oraclecloud.com" and "myworkdayjobs.com" in domains
+    assert domains == ["oraclecloud.com", "oracle.com"]  # apply.agent.code_senders for this host
     assert after == NOW - timedelta(seconds=60)  # the start of the step that sent the code, less a minute
     assert "code filled from Oracle <no-reply@oraclecloud.com>" in llm.calls[1]["prompt"]
     trace = (logs / "apply-J7.json").read_text()
@@ -466,3 +503,34 @@ def test_the_model_saying_needs_code_on_a_page_without_code_words_hands_off(job)
     app = make(job, page, FakeLlm([answer(status="needs_code")]), FakeGmail(MAIL))
     app.advance()
     assert app.status == "needs_account" and page.done == [] and page.clicks == []
+
+
+def test_a_page_off_the_known_hosts_reads_mail_only_from_its_own_domain(job):
+    evil = state(
+        *CODE_PAGE["elements"], headings=CODE_PAGE["headings"], url="https://login.evil.example/verify"
+    )
+    gmail = FakeGmail(None)
+    job[1]["apply"]["agent"]["code_wait_seconds"] = 5
+    app = make(job, FakePage([evil]), FakeLlm([answer()]), gmail)
+    app.advance()
+    assert {d for domains, _ in gmail.calls for d in domains} == {"evil.example"}
+
+
+def test_a_code_shown_again_on_the_page_never_reaches_the_model_or_the_trace(job):
+    _, _, logs = job
+    echoed = state(
+        el(20, "Reference number", value=CODE),  # the page shows the code again under another label
+        errors=[f"The code {CODE} was accepted"],
+        url=ORACLE,
+    )
+    page = FakePage([EMAIL_PAGE, CODE_PAGE, echoed])
+    llm = email_then_ready()
+    run(job, page, llm, FakeGmail(MAIL))
+    assert CODE not in llm.calls[1]["prompt"] and "[code]" in llm.calls[1]["prompt"]
+    assert CODE not in (logs / "apply-J7.json").read_text()
+
+
+def test_the_screenshot_of_a_code_page_masks_the_code_fields(job):
+    page = FakePage([CODE_PAGE])
+    run(job, page, FakeLlm([answer()]), None)  # mail off: it stops on the code page
+    assert page.masks[-1] == [11, 12, 13, 14, 15, 16]

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-__all__ = ["LOGIN_NOTE", "banner", "chrome"]
+__all__ = ["LOGIN_NOTE", "banner", "chrome", "clear_banner"]
 
 LOGIN_NOTE = "Sign in or create the account yourself; JobApplier does not handle passwords."
 # Plain DOM, so it works on any page; clicking it removes it.
@@ -52,3 +52,7 @@ def chrome(profile_dir: Path) -> Iterator:
 
 def banner(page, head: str, lines: list[str]) -> None:
     page.evaluate(_BANNER, [head, lines])
+
+
+def clear_banner(page) -> None:
+    page.evaluate("() => { const b = document.getElementById('jobapplier-banner'); if (b) b.remove(); }")

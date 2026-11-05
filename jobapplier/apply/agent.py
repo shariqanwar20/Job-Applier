@@ -17,8 +17,8 @@ from urllib.parse import urlsplit
 import pypdf
 from playwright.sync_api import Error as PlaywrightError
 
-from jobapplier.apply.browser import LOGIN_NOTE, banner
-from jobapplier.apply.page import ClickRules, RefusedError, Snapshot, act, fill_code, read, verify
+from jobapplier.apply.browser import LOGIN_NOTE, banner, clear_banner
+from jobapplier.apply.page import ClickRules, RefusedError, Snapshot, act, code_masks, fill_code, read, verify
 from jobapplier.apply.targets import Target
 from jobapplier.llm import LlmError
 from jobapplier.resume.master import Item, plain
@@ -138,7 +138,7 @@ def _pdf_text(pdf: Path | None) -> str:
         return ""
 
 
-def _prompt(target: Target, cfg: dict, values: dict, resume: str, history: list[str], snap: Snapshot) -> str:
+def _prompt(target: Target, cfg: dict, values: dict, resume: str, history: list[str], page_text: str) -> str:
     profile = "\n".join(f"- {k}: {v}" for k, v in values.items() if v)
     resume = _pdf_text(target.pdf) or resume  # the tailored PDF has employers and dates; master lines do not
     description = target.description[: cfg["apply"]["agent"]["description_chars"]]
@@ -146,7 +146,7 @@ def _prompt(target: Target, cfg: dict, values: dict, resume: str, history: list[
     return (
         f"{_RULES}\nMy profile:\n{profile}\n\nMy resume:\n{resume}\n\n"
         f"Job: {target.title} at {target.company}\n\nJob description:\n{description}\n\n"
-        f"Steps so far:\n{steps}\n\nThe page now (JSON):\n{snap.text}\n"
+        f"Steps so far:\n{steps}\n\nThe page now (JSON):\n{page_text}\n"
     )
 
 
@@ -183,6 +183,23 @@ def _digest(snap: Snapshot) -> str:
     return hashlib.sha256(snap.text.encode()).hexdigest()
 
 
+def _page_digest(snap: Snapshot) -> str:
+    """The page's URL and controls only: a heading or error message that changes is not the owner's step."""
+    view = snap.view
+    return hashlib.sha256(json.dumps([view["url"], view["elements"]]).encode()).hexdigest()
+
+
+def _senders(url: str, agent_cfg: dict) -> list[str]:
+    """The domains a code for this page may come from: its own, plus apply.agent.code_senders for its
+    host. Never another host's: a page on an unknown site must not read an ATS's codes."""
+    host = urlsplit(url).hostname or ""
+    out = [_site(url)]
+    for suffix, domains in agent_cfg["code_senders"].items():
+        if host == suffix or host.endswith(f".{suffix}"):
+            out += domains
+    return list(dict.fromkeys(out))
+
+
 class Application:
     """One application's loop in its tab. advance() runs it to its next stop; at a hand-off stop
     (waiting), wait_for_owner() waits for the owner to do the step, and advance() goes on with the same
@@ -212,7 +229,12 @@ class Application:
         self.status, self.note, self.n, self.started, self.final = None, "", 0, False, False
         self.snap, self.digests, self.base = None, [], None  # base: the page when it stopped for the owner
         self.gmail, self.now = gmail, now or (lambda: datetime.now(UTC))
-        self.times, self.codes, self.code_log = [], set(), []  # step start times; codes used; their senders
+        self.times, self.codes, self.code_log, self.clicked = (
+            [],
+            set(),
+            [],
+            False,
+        )  # step start times; codes used; their senders
 
     @property
     def waiting(self) -> bool:
@@ -260,22 +282,30 @@ class Application:
             self.status = "max_cost"
         if self.status:
             return
-        prompt = _prompt(self.target, self.cfg, self.values, self.resume, self.history, snap)
+        prompt = _prompt(
+            self.target, self.cfg, self.values, self.resume, self.history, self._scrub(snap.text)
+        )
         try:
             got, cost = self.llm_run(prompt, _SCHEMA, self.cfg["llm"]["models"]["apply"], writing=False)
         except LlmError as exc:
             self.status, self.note = "llm_error", str(exc)
             return
-        before, uploaded = list(self.page.context.pages), self.uploaded
+        before, uploaded, self.clicked = list(self.page.context.pages), self.uploaded, False
         if stop := self._step(snap, got, cost):
             self.status = stop
         elif got.get("status", "continue") != "continue":
             self.status, self.note = got["status"], got.get("note", "")
         else:
-            opened = [p for p in self.page.context.pages if p not in before]
+            # a tab this step's click opened (a noopener link leaves no opener), never one the page opened
+            opened = [
+                p
+                for p in self.page.context.pages
+                if p not in before and self.clicked and p.opener() in (self.page, None)
+            ]
             if opened:  # an Apply link that opens the form in a new tab
                 self.page = opened[-1]
-                self.history.append(f"step {self.n}: a new tab opened ({self.page.url}); going on there")
+                host = urlsplit(self.page.url).hostname or self.page.url
+                self.history.append(f"step {self.n}: a new tab opened on {host}; going on there")
             _settle(self.page, self.cfg, uploaded=self.uploaded and not uploaded)
 
     def _code(self) -> None:
@@ -291,7 +321,7 @@ class Application:
         if not why:
             # from a minute before the step that sent the code: clocks and mail delivery differ
             after = (self.times[-2] if len(self.times) > 1 else self.times[-1]) - timedelta(seconds=60)
-            domains = [_site(snap.view["url"]), *ag["code_sender_domains"]]
+            domains = _senders(snap.view["url"], ag)
             polls = int(ag["code_wait_seconds"] / ag["code_poll_seconds"])
             for i in range(polls + 1):
                 try:
@@ -332,17 +362,25 @@ class Application:
                 return
         self.status, self.note = "needs_account", f"type the code from your email ({why})"
 
+    def _scrub(self, text: str) -> str:
+        """text without any code read from the mail: a page may show it again (a field, an error)."""
+        for code in self.codes:
+            text = text.replace(code, "[code]")
+        return text
+
     def _stopped(self) -> None:
         """At every stop: a screenshot, the trace so far, and for a hand-off the page to compare with."""
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self._write_trace()
+        now = None
         with suppress(PlaywrightError):  # a broken page may take none; the terminal and trace say it
+            now = read(self.page, self.cfg["apply"]["agent"])
+        with suppress(PlaywrightError):
+            masks = code_masks(self.page, now, self.rules) if now and now.code_page else []
             path = self.log_dir / f"apply-{self.target.job_id}-{self.n}.png"
-            self.page.screenshot(path=str(path), full_page=True)
-        self.base = None
-        if self.status in _HANDOFFS:
-            with suppress(PlaywrightError):  # after the model's own actions: they are not the owner's
-                self.base = _digest(read(self.page, self.cfg["apply"]["agent"]))
+            self.page.screenshot(path=str(path), full_page=True, mask=masks)
+        # after the model's own actions: they are not the owner's
+        self.base = _page_digest(now) if now and self.status in _HANDOFFS else None
 
     def ask_owner(self) -> None:
         with suppress(PlaywrightError):
@@ -351,28 +389,32 @@ class Application:
             banner(self.page, f"JobApplier needs you: {what}.", [_WAIT_LINE])
 
     def wait_for_owner(self) -> bool:
-        """Polls until the page has changed from where it stopped and stayed the same for one poll (the
-        owner is done, not mid-typing), with no password field or captcha left. True: the owner did the
+        """Polls until the page's URL or controls have changed from where it stopped and stayed the same
+        for resume_stable_polls polls (the owner is done, not mid-typing), with no password field or captcha
+        left. True: the owner did the
         step and the loop may go on. False: the wait timed out, and the application ends as needs_owner.
         The owner, never this code, solves the captcha or types the code."""
         ag = self.cfg["apply"]["agent"]
         self.ask_owner()
-        polls, last, waited = max(1, int(ag["wait_for_owner_seconds"] / ag["poll_seconds"])), None, 0
+        polls, last, same, waited = max(1, int(ag["wait_for_owner_seconds"] / ag["poll_seconds"])), None, 0, 0
         for i in range(1, polls + 1):
             self.page.wait_for_timeout(ag["poll_seconds"] * 1000)
             waited = i * ag["poll_seconds"]
             try:
                 snap = read(self.page, ag)
             except PlaywrightError:  # a reload in progress
-                last = None
+                last, same = None, 0
                 continue
-            now = _digest(snap)
-            if now != self.base and now == last and not (snap.password or snap.captcha):
+            now = _page_digest(snap)
+            same = same + 1 if now == last else 1
+            last = now
+            if now != self.base and same >= ag["resume_stable_polls"] and not (snap.password or snap.captcha):
+                with suppress(PlaywrightError):
+                    clear_banner(self.page)
                 self._handoff(waited, resumed=True)
                 self.history.append(f"step {self.n}: the owner did the {self.status} step")
                 self.digests = []
                 return True
-            last = now
         self._handoff(waited, resumed=False)
         self.note = f"no change in {waited}s after: {self.note or describe(self.status, ag)}"
         self.status, self.final = "needs_owner", True
@@ -397,7 +439,7 @@ class Application:
             "note": self.note,
         }
         record |= {"cost": self.cost, "handoffs": self.handoffs, "codes": self.code_log, "steps": self.steps}
-        trace.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+        trace.write_text(self._scrub(json.dumps(record, indent=2, ensure_ascii=False)))
         return trace
 
     def finish(self) -> dict:
@@ -468,6 +510,7 @@ class Application:
                 logged.append(f"failed {_line(action, snap, short=True)}")
                 continue
             record["done"].append(line)
+            self.clicked = self.clicked or action["op"] == "click"
             self.history.append(f"step {n}: done {line}")
             logged.append(_line(action, snap, short=True))
             if action["op"] in _FIELD_OPS:
@@ -481,7 +524,7 @@ class Application:
             "apply %s step %d: %s; cost $%.4f (total $%.4f)",
             self.target.job_id,
             n,
-            "; ".join(logged) or "no actions",
+            self._scrub("; ".join(logged)) or "no actions",
             cost,
             self.cost,
         )

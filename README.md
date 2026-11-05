@@ -158,7 +158,8 @@ Each application runs its own loop in its own tab, with no shared conversation. 
    - an upload of anything but the tailored PDF (the model never names a file);
    - a click on a control when any source of its name (aria-label, labelled-by text, text, value, title) has a word starting with one of `apply.submit_stems` (submit, send, finish, final, complete, confirm, done, post), a word from `apply.sign_in_words` (sign in, create account, register, Continue with Google, Apply with LinkedIn), or a non-Latin look-alike letter;
    - an unnamed control;
-   - an `apply.apply_words` control ("Apply", "Apply now", "Start application") once anything is filled, so the job page's start button works but a form's final Apply never does;
+   - an `apply.apply_words` control ("Apply", "Apply now", "Start application", "Postuler") on a page that already has an answer or a file field, or when it submits a form that holds fields, so the job page's start button works but a form's final Apply never does, whoever filled the form;
+   - a role toggle (a custom checkbox or switch) whose name has a submit or sign-in word;
    - a link, or a button that submits its form, unless its text starts with an `apply.next_words` phrase (Next, Continue, Save & Continue) with at most `apply.next_max_extra_words` more words, none of them in `apply.next_deny_words`.
 
    The click is bound to the text it was checked with, so Chrome checks the name once more. There is no Enter key, no form submit and no keyboard or mouse call in the apply code; a test checks the source for them. A refusal goes back to the model in the next step.
@@ -179,7 +180,7 @@ The loop stops when:
 Some stops are for you: a sign-in, account or verification-code step, a question your profile and resume do not answer, or a captcha. Code finds a captcha by itself: a visible frame from one of `apply.agent.captcha_hosts` with no form field beside it, like a DataDome or Cloudflare check that hides the whole page. It does so without a model call. A captcha widget inside a form does not stop the filling; tick it right before you submit. JobApplier never solves a captcha.
 
 **Verification codes.** A page whose headings or field labels have an `apply.agent.code_words` phrase (verification code, confirm your identity, enter the code, ...) asks for a code. JobApplier then reads the code from your Gmail. This needs `mail-login` and stays read-only.
-- **Which mail:** it looks for mail from the page's domain or one of `apply.agent.code_sender_domains`, sent from a minute before the step that asked for the code.
+- **Which mail:** it looks for mail from the page's own domain and the senders `apply.agent.code_senders` lists for that host (Oracle, Workday, Greenhouse, ...), never another site's, sent from a minute before the step that asked for the code.
 - **Waiting:** it checks every `apply.agent.code_poll_seconds` (5) for up to `apply.agent.code_wait_seconds` (180).
 - **Typing:** it types the code, one digit per box on a page with one box per digit, and clicks the button whose name starts with an `apply.agent.verify_words` word (Verify, Confirm, Continue, Next, Submit code). It does that click only on a code page with at most `apply.agent.code_page_max_fields` (8) other fields, and never on an Apply or application button.
 - **What is kept:** the code is never logged, traced or shown to the model; the log and trace say only who sent it and when.
@@ -187,7 +188,7 @@ Some stops are for you: a sign-in, account or verification-code step, a question
 
 The model never types a code: code refuses its fill into a code field.
 
-All tabs are filled first, as far as each can go. Then JobApplier goes through the ones that need you, one at a time. It brings the tab to the front with the note "JobApplier needs you: <what>. Do it in this tab; JobApplier continues when the page changes." It checks the page every `apply.agent.poll_seconds` (3). Once the page has changed and stayed the same for one check, with no password field or captcha left, the loop goes on in the same tab. The step and cost limits carry over. You get at most `apply.agent.max_handoffs` (3) of these per application. When nothing changes within `apply.agent.wait_for_owner_seconds` (300), the application ends as "it needs you".
+All tabs are filled first, as far as each can go. Then JobApplier goes through the ones that need you, one at a time. It brings the tab to the front with the note "JobApplier needs you: <what>. Do it in this tab; JobApplier continues when the page changes." It checks the page every `apply.agent.poll_seconds` (3). Once the page's address or controls have changed and stayed the same for `apply.agent.resume_stable_polls` (3) checks, with no password field or captcha left, the note goes away and the loop goes on in the same tab. The step and cost limits carry over. You get at most `apply.agent.max_handoffs` (3) of these per application. When nothing changes within `apply.agent.wait_for_owner_seconds` (300), the application ends as "it needs you".
 
 When an application ends, a note at the top of its page gives:
 
