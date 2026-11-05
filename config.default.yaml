@@ -132,7 +132,7 @@ apply:  # `apply` runs one Haiku agent per ready row in Chrome; you check the fo
       - {host: '^(jobs|careers)\.smartrecruiters\.com$', senders: [smartrecruiters.com]}
       - {host: '^[a-z0-9-]+\.icims\.com$', senders: [icims.com]}
       - {host: '^career\d*\.successfactors\.(com|eu)$', senders: [successfactors.com, sap.com]}
-    no_code_domains: [google.com, github.io, githubusercontent.com, notion.site, wixsite.com, webflow.io, netlify.app, vercel.app, pages.dev, herokuapp.com, azurewebsites.net, amazonaws.com, blogspot.com, wordpress.com]
+    no_code_domains: [google.com, github.io, githubusercontent.com, notion.site, wixsite.com, webflow.io, netlify.app, vercel.app, pages.dev, herokuapp.com, azurewebsites.net, amazonaws.com, blogspot.com, wordpress.com, microsoft.com, office.com, live.com, typeform.com, jotform.com]
     code_poll_seconds: 5
     code_wait_seconds: 180
     verify_words: [verify, confirm, continue, next, submit code]

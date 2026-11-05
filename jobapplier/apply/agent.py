@@ -237,6 +237,7 @@ class Application:
         self.gmail, self.now = gmail, now or (lambda: datetime.now(UTC))
         # step start times; codes used; their senders; a click this step; a click past the job page's Apply
         self.times, self.codes, self.code_log, self.clicked, self.started_form = [], set(), [], False, False
+        self.applies = 0
 
     @property
     def waiting(self) -> bool:
@@ -506,7 +507,8 @@ class Application:
                 action = {"op": repr(action)}
             line = _line(action, snap)
             try:
-                apply_open = not (self.filled or self.started_form or self.handoffs)
+                # Apply starts an application: at most twice (Workday: Apply, then Apply Manually)
+                apply_open = not (self.filled or self.started_form or self.handoffs) and self.applies < 2
                 kind = act(page, snap, action, self.target.pdf, rules, apply_open, timeout)
             except RefusedError as exc:
                 self.refused += 1
@@ -525,6 +527,7 @@ class Application:
             record["done"].append(line)
             self.clicked = self.clicked or action["op"] == "click"
             self.started_form = self.started_form or kind == "click"
+            self.applies += kind == "apply"
             self.history.append(f"step {n}: done {line}")
             logged.append(_line(action, snap, short=True))
             if action["op"] in _FIELD_OPS:

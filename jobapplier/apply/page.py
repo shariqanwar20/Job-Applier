@@ -482,7 +482,8 @@ def _captcha(raw: dict, kept: list[dict], agent_cfg: dict) -> bool:
 
 
 def _click(root, selector: str, live: dict, rules: ClickRules, fresh: bool, timeout_ms: float) -> str:
-    """The only click in the apply code. Returns "apply" for an Apply click, else "click"."""
+    """The only click in the apply code. Returns "apply" for an Apply click, "aside" for a click outside
+    any form that is not a next step (a cookie banner, a language picker), else "click"."""
     if why := rules.refuse(live, fresh):
         raise RefusedError(why)
     if live["tag"] == "input":  # its name is its value
@@ -499,7 +500,10 @@ def _click(root, selector: str, live: dict, rules: ClickRules, fresh: bool, time
         if inner.count():
             target = inner.first
     target.click(timeout=timeout_ms)
-    return "apply" if any(rules.apply.search(norm(live[k])) for k in _SOURCES) else "click"
+    if any(rules.apply.search(norm(live[k])) for k in _SOURCES):
+        return "apply"
+    names = [norm(live[k]) for k in _SOURCES]
+    return "click" if live["form"] or rules._is_next(live, names) else "aside"
 
 
 def _where(page, e: dict):

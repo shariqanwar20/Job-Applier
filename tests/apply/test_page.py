@@ -670,3 +670,10 @@ def test_an_option_click_goes_to_the_options_inner_text(agent_cfg, rules):
     page = FakePage([state(el(1, type="", tag="div", role="option", text="Canada (+1)"))])
     run_act(agent_cfg, rules, page, {"op": "click", "ref": 1})
     assert page.inner_text_lookups == ["Canada (+1)"] and page.clicks == ["Canada (+1)"]
+
+
+def test_a_click_outside_any_form_that_is_not_a_step_is_aside(agent_cfg, rules):
+    # a cookie banner on the job page must not close the window for the job's "Apply now"
+    page = FakePage([state(btn(1, "Accept all cookies"), btn(2, "Apply now"))])
+    assert run_act(agent_cfg, rules, page, {"op": "click", "ref": 1}) == "aside"
+    assert run_act(agent_cfg, rules, page, {"op": "click", "ref": 2}) == "apply"
