@@ -90,7 +90,7 @@ apply:  # `apply` runs one Haiku agent per ready row in Chrome; you check the fo
   parser_wait_seconds: 3           # after the resume upload, for the site's resume parser to fill fields
   field_timeout_seconds: 3         # per action; one that takes longer is reported to the model as failed
   agent:
-    max_steps: 25                  # model calls per application
+    max_steps: 60                  # model calls per application
     max_cost_usd: 0.50             # per application; the loop stops once its calls cost this much
     max_snapshot_chars: 30000      # the page as JSON; elements past this are left out and counted
     max_options: 80                # options shown per select
