@@ -170,6 +170,7 @@ def _apply(job_id: str | None, prompt: bool = True, wait: bool = True) -> int:
             input,
             prompt=prompt,
             wait=wait,
+            gmail=_gmail(cfg),
         )
     except NotionError as exc:
         print(f"notion: {exc}")

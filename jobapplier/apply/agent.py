@@ -10,13 +10,15 @@ import hashlib
 import json
 import logging
 from contextlib import suppress
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pypdf
 from playwright.sync_api import Error as PlaywrightError
 
 from jobapplier.apply.browser import LOGIN_NOTE, banner
-from jobapplier.apply.page import ClickRules, RefusedError, Snapshot, act, read
+from jobapplier.apply.page import ClickRules, RefusedError, Snapshot, act, fill_code, read, verify
 from jobapplier.apply.targets import Target
 from jobapplier.llm import LlmError
 from jobapplier.resume.master import Item, plain
@@ -46,7 +48,10 @@ _SCHEMA = {
                 "additionalProperties": False,
             },
         },
-        "status": {"type": "string", "enum": ["continue", "ready_to_submit", "needs_account", "needs_owner"]},
+        "status": {
+            "type": "string",
+            "enum": ["continue", "ready_to_submit", "needs_code", "needs_account", "needs_owner"],
+        },
         "note": {"type": "string"},
     },
     "required": ["actions", "status", "note"],
@@ -80,8 +85,10 @@ Rules:
 - Never click the final submit. When only submitting is left, return status "ready_to_submit".
 - A page that only asks for my email (or phone) to start the application, often saying no account is needed,
   is not a sign-in: fill my email, tick its required consent boxes and click Next.
+- When the page asks for a verification code sent to my email, return status "needs_code" with no
+  actions: the code reads my email and types it. Never type a code yourself.
 - Return status "needs_account" only when the page asks for a password, asks me to sign in to an existing
-  account, or asks for a verification code sent to my email or phone.
+  account, or asks for a code sent to my phone.
 - For a combobox or custom dropdown: type or click it, then click the matching option (role "option") that
   the next page snapshot shows.
 - Toggle-style answers (Yes/No buttons, days of the week, a title like Mr.) are clicked; use the question
@@ -102,6 +109,7 @@ _STOPS = {
     "llm_error": "the model call failed",
     "page_error": "the page broke",
     "captcha": "a captcha: solve it yourself",
+    "needs_code": "a verification code",
 }
 _WAIT_LINE = "Do it in this tab; JobApplier continues when the page changes."
 
@@ -158,6 +166,17 @@ def _line(action: dict, snap: Snapshot, short: bool = False) -> str:
     return f"{action.get('op')} {ref}{where}" + (f" = {value}" if value is not None else "")
 
 
+def _site(url: str) -> str:
+    """The registrable domain: careers.acme.com -> acme.com."""
+    labels = (urlsplit(url).hostname or "").split(".")
+    # shortcut: two labels, or three under a country's second level (acme.co.uk); use the public suffix
+    # list if a code mail comes from a domain this gets wrong
+    country = (
+        len(labels) > 2 and len(labels[-1]) == 2 and labels[-2] in ("co", "com", "ac", "gov", "org", "net")
+    )
+    return ".".join(labels[-3:] if country else labels[-2:])
+
+
 def _digest(snap: Snapshot) -> str:
     return hashlib.sha256(snap.text.encode()).hexdigest()
 
@@ -171,14 +190,27 @@ class Application:
     """
 
     def __init__(
-        self, page, target: Target, cfg: dict, values: dict, resume: str, llm_run, rules: ClickRules, log_dir
+        self,
+        page,
+        target: Target,
+        cfg: dict,
+        values: dict,
+        resume: str,
+        llm_run,
+        rules: ClickRules,
+        log_dir,
+        gmail=None,
+        now=None,
     ):
+        """gmail: a read-only Gmail for verification codes, or None when mail is off."""
         self.page, self.target, self.cfg, self.values, self.resume = page, target, cfg, values, resume
         self.llm_run, self.rules, self.log_dir = llm_run, rules, Path(log_dir)
         self.history, self.steps, self.handoffs = [], [], []
         self.filled, self.answers, self.uploaded, self.refused, self.cost = [], [], False, 0, 0.0
         self.status, self.note, self.n, self.started, self.final = None, "", 0, False, False
         self.snap, self.digests, self.base = None, [], None  # base: the page when it stopped for the owner
+        self.gmail, self.now = gmail, now or (lambda: datetime.now(UTC))
+        self.times, self.codes, self.code_log = [], set(), []  # step start times; codes used; their senders
 
     @property
     def waiting(self) -> bool:
@@ -198,6 +230,8 @@ class Application:
                 _settle(self.page, self.cfg)
             while self.status is None:
                 self._turn()
+                if self.status == "needs_code":
+                    self._code()
         except PlaywrightError as exc:  # the page navigated, closed or redrew under the loop
             self.status, self.note = "page_error", f"{type(exc).__name__}: {str(exc)[:200]}"
         self._stopped()
@@ -209,12 +243,15 @@ class Application:
             self.status = "max_steps"
             return
         self.n += 1
+        self.times.append(self.now())
         snap = self.snap = read(self.page, ag)
         self.digests = [*self.digests, _digest(snap)][-ag["unchanged_steps"] :]
         if snap.password:
             self.status = "needs_account"
         elif snap.captcha:
             self.status, self.note = "captcha", "solve the captcha"
+        elif snap.code_page:
+            self.status = "needs_code"
         elif len(self.digests) == ag["unchanged_steps"] and len(set(self.digests)) == 1:
             self.status = "stuck"
         elif self.cost >= ag["max_cost_usd"]:
@@ -228,8 +265,8 @@ class Application:
             self.status, self.note = "llm_error", str(exc)
             return
         before, uploaded = list(self.page.context.pages), self.uploaded
-        if self._step(snap, got, cost):
-            self.status, self.note = "needs_account", "a password or verification code field"
+        if stop := self._step(snap, got, cost):
+            self.status = stop
         elif got.get("status", "continue") != "continue":
             self.status, self.note = got["status"], got.get("note", "")
         else:
@@ -238,6 +275,60 @@ class Application:
                 self.page = opened[-1]
                 self.history.append(f"step {self.n}: a new tab opened ({self.page.url}); going on there")
             _settle(self.page, self.cfg, uploaded=self.uploaded and not uploaded)
+
+    def _code(self) -> None:
+        """Reads the code the page sent from the owner's mail, types it and clicks verify; the loop then
+        goes on. Without mail, a code or a page it fits, the owner types it (a hand-off). The code itself is
+        never logged or traced: only who sent it and when."""
+        ag = self.cfg["apply"]["agent"]
+        snap = read(self.page, ag)
+        why = None if self.gmail else "mail is off: run mail-login"
+        if not why and not snap.code_page:
+            why = "not a verification code page"
+        found = None
+        if not why:
+            # from a minute before the step that sent the code: clocks and mail delivery differ
+            after = (self.times[-2] if len(self.times) > 1 else self.times[-1]) - timedelta(seconds=60)
+            domains = [_site(snap.view["url"]), *ag["code_sender_domains"]]
+            polls = int(ag["code_wait_seconds"] / ag["code_poll_seconds"])
+            for i in range(polls + 1):
+                try:
+                    got = self.gmail.find_code(domains, after)
+                except Exception as exc:  # any mail failure: the owner types the code instead
+                    why = f"mail failed: {type(exc).__name__}"
+                    break
+                if got and got["code"] not in self.codes:
+                    found = got
+                    break
+                if i < polls:
+                    self.page.wait_for_timeout(ag["code_poll_seconds"] * 1000)
+            else:
+                why = f"no new code in the mail after {ag['code_wait_seconds']}s"
+        if found:
+            self.codes.add(found["code"])
+            try:
+                fill_code(
+                    self.page,
+                    snap,
+                    found["code"],
+                    self.rules,
+                    self.cfg["apply"]["field_timeout_seconds"] * 1000,
+                )
+                button = verify(
+                    self.page, snap, self.rules, self.cfg["apply"]["field_timeout_seconds"] * 1000
+                )
+            except RefusedError as exc:
+                why = str(exc)
+            else:
+                mailed = f"{found['received']:%Y-%m-%d %H:%M}"
+                line = f"code filled from {found['sender']} (mailed {mailed}), clicked {button}"
+                _log.info("apply %s step %d: %s", self.target.job_id, self.n, line)
+                self.code_log.append(f"step {self.n}: {line}")
+                self.history.append(f"step {self.n}: {line}")
+                self.status, self.digests = None, []
+                _settle(self.page, self.cfg)
+                return
+        self.status, self.note = "needs_account", f"type the code from your email ({why})"
 
     def _stopped(self) -> None:
         """At every stop: a screenshot, the trace so far, and for a hand-off the page to compare with."""
@@ -303,7 +394,7 @@ class Application:
             "status": self.status,
             "note": self.note,
         }
-        record |= {"cost": self.cost, "handoffs": self.handoffs, "steps": self.steps}
+        record |= {"cost": self.cost, "handoffs": self.handoffs, "codes": self.code_log, "steps": self.steps}
         trace.write_text(json.dumps(record, indent=2, ensure_ascii=False))
         return trace
 
@@ -334,8 +425,8 @@ class Application:
             "cost": self.cost,
         }
 
-    def _step(self, snap: Snapshot, got: dict, cost: float) -> bool:
-        """Does the step's actions; True when one was refused as a sign-in or account step."""
+    def _step(self, snap: Snapshot, got: dict, cost: float) -> str | None:
+        """Does the step's actions; the status to stop with when a refusal says so."""
         n, page, rules, values = self.n, self.page, self.rules, self.values
         timeout = self.cfg["apply"]["field_timeout_seconds"] * 1000
         actions = got.get("actions") or []
@@ -353,7 +444,7 @@ class Application:
         }
         self.steps.append(record)
         self.cost += cost
-        account, logged = False, []
+        stop, logged = None, []
         for action in actions:
             if not isinstance(action, dict):
                 action = {"op": repr(action)}
@@ -365,8 +456,8 @@ class Application:
                 record["refused"].append(f"{line}: {exc}")
                 self.history.append(f"step {n}: REFUSED {line}: {exc}")
                 logged.append(f"refused {_line(action, snap, short=True)}: {exc}")
-                if exc.account:
-                    account = True
+                if exc.stop:
+                    stop = exc.stop
                     break
                 continue
             except PlaywrightError as exc:  # a timeout or a redraw: the model hears of it and may retry
@@ -392,7 +483,7 @@ class Application:
             cost,
             self.cost,
         )
-        return account
+        return stop
 
 
 def _banner_lines(run: Application, note: str, missing: list[str], trace: Path) -> list[str]:

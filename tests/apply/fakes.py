@@ -48,6 +48,7 @@ def el(ref, label="", type="text", tag=None, visible=True, **kw):
         "form": False,
         "pw_form": False,
         "auto": "",
+        "maxlength": None,
         **kw,
     }
 
@@ -231,3 +232,16 @@ def owner_goes_to(page, at, poll_ms=3000):
 
 def answer(*actions, status="continue", note=""):
     return {"actions": [dict(a) for a in actions], "status": status, "note": note}
+
+
+class FakeGmail:
+    """Gmail.find_code: found is the message it returns (or a function giving it); error is raised."""
+
+    def __init__(self, found=None, error=None):
+        self.found, self.error, self.calls = found, error, []
+
+    def find_code(self, sender_domains, after):
+        self.calls.append((list(sender_domains), after))
+        if self.error:
+            raise self.error
+        return self.found() if callable(self.found) else self.found

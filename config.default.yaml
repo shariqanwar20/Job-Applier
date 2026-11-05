@@ -105,8 +105,19 @@ apply:  # `apply` runs one Haiku agent per ready row in Chrome; you check the fo
     wait_for_owner_seconds: 300
     max_handoffs: 3
     captcha_hosts: [captcha-delivery.com, hcaptcha.com, google.com/recaptcha, recaptcha.net, challenges.cloudflare.com, arkoselabs]
-    # A field with one of these words, or autocomplete="one-time-code", is never typed into: you type the code.
-    code_words: [verification code, verify code, security code, confirmation code, one time code, one time password, one time passcode, otp, passcode, 6 digit code, six digit code, authentication code]
+    # Verification codes: a page whose headings or field labels have one of code_words (or a field with
+    # autocomplete="one-time-code") asks for a code. JobApplier reads it from your Gmail (read-only, after
+    # `mail-login`): from the page's domain or code_sender_domains, mailed from a minute before the step
+    # that sent it. It checks every code_poll_seconds for up to code_wait_seconds, types it (one digit per
+    # box where the page has one box per digit) and clicks the button whose name starts with one of
+    # verify_words, on a page with at most code_page_max_fields other fields. No code, or no mail: it waits
+    # for you to type it. The model never types a code.
+    code_words: [verification code, verify code, security code, confirmation code, confirm your identity, enter the code, one time code, one time password, one time passcode, otp, passcode, 6 digit code, six digit code, authentication code]
+    code_sender_domains: [oraclecloud.com, myworkdayjobs.com, myworkday.com, workday.com, greenhouse.io, greenhouse-mail.io, lever.co, ashbyhq.com, smartrecruiters.com, icims.com, taleo.net, successfactors.com]
+    code_poll_seconds: 5
+    code_wait_seconds: 180
+    verify_words: [verify, confirm, continue, next, submit code]
+    code_page_max_fields: 8
   # The click guard, in code: a control is never clicked when any source of its name (aria-label,
   # labelled-by text, text, value, title) has a word starting with one of submit_stems, a sign_in_words
   # word, or a non-Latin look-alike letter. An apply_words control is clicked only while nothing is filled

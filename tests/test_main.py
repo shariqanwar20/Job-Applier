@@ -422,10 +422,11 @@ def test_apply_no_prompt_asks_nothing(home, monkeypatch, rules):
 def test_no_prompt_implies_no_wait(flags, prompt, wait, home, monkeypatch, rules):
     root, _ = home
     _apply_home(root, rules, monkeypatch)
-    got = {}
+    got, mail = {}, object()
+    monkeypatch.setattr(app, "_gmail", lambda cfg: mail)
     monkeypatch.setattr(app, "run_apply", lambda *a, **kw: got.update(kw) or {})
     assert app.main(["apply", *flags]) == 0
-    assert (got["prompt"], got["wait"]) == (prompt, wait)
+    assert (got["prompt"], got["wait"], got["gmail"]) == (prompt, wait, mail)
 
 
 def test_apply_without_a_master_resume_says_so(home, monkeypatch, rules, capsys):

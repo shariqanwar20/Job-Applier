@@ -14,7 +14,7 @@ from pathlib import Path
 
 from jobapplier.core.rules import norm, words
 
-__all__ = ["ClickRules", "RefusedError", "Snapshot", "act", "read"]
+__all__ = ["ClickRules", "RefusedError", "Snapshot", "act", "fill_code", "read", "verify"]
 
 _TEXT = frozenset(
     {
@@ -134,7 +134,8 @@ _SNAPSHOT = (
         disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
         tabindex: el.getAttribute('tabindex'),
         aria: t(el.getAttribute('aria-label')), labelledby: by(el), text: field ? '' : text(el).slice(0, 200),
-        title: t(el.getAttribute('title')), ...facts(el), labels: labels.map(facts),
+        title: t(el.getAttribute('title')), auto: (el.getAttribute('autocomplete') || '').toLowerCase(),
+        maxlength: el.maxLength > 0 ? el.maxLength : null, ...facts(el), labels: labels.map(facts),
       });
     });
     doc.querySelectorAll('iframe, frame').forEach(f => {
@@ -173,11 +174,11 @@ _LIVE = (
 
 
 class RefusedError(Exception):
-    """An action the code will not do; account means the page is a sign-in or account step."""
+    """An action the code will not do; stop, when set, is the status the loop stops with."""
 
-    def __init__(self, why: str, account: bool = False):
+    def __init__(self, why: str, stop: str | None = None):
         super().__init__(why)
-        self.account = account
+        self.stop = stop
 
 
 def _foreign(text: str) -> bool:
@@ -202,7 +203,11 @@ class ClickRules:
     raw_stems: str
     raw_sign_in: str
     raw_apply: str
-    code: re.Pattern  # a verification code field: the owner types the code
+    code: (
+        re.Pattern
+    )  # a verification code page or field: the code from the mail goes there, never the model's
+    verify_start: re.Pattern  # the code page's verify button
+    code_page_max_fields: int
 
     @classmethod
     def from_config(cls, apply_cfg: dict) -> "ClickRules":
@@ -218,6 +223,8 @@ class ClickRules:
             _raw(apply_cfg["sign_in_words"]),
             _raw(apply_cfg["apply_words"]),
             words(apply_cfg["agent"]["code_words"]),
+            re.compile(r"^(" + _raw(apply_cfg["agent"]["verify_words"]) + r")\b"),
+            int(apply_cfg["agent"]["code_page_max_fields"]),
         )
 
     @staticmethod
@@ -274,6 +281,7 @@ class Snapshot:
     refs: dict[int, dict]  # ref -> the element as read, for the refs in view
     password: bool  # a visible password field: an account step
     captcha: bool  # a captcha that is the whole page: only the owner can get past it
+    code_page: bool  # it asks for a verification code
     missing: list[str]  # required fields still empty
 
     def label(self, ref: int) -> str:
@@ -320,7 +328,20 @@ def _options(options: list[str], cap: int) -> list[str]:
     return [*options[:cap], f"({len(options) - cap} more: select one by its exact text)"]
 
 
-def _entry(e: dict, cap: int) -> dict:
+_DIGIT = re.compile(r"\bdigit\b")
+_CODE_TYPES = frozenset({"text", "tel", "number", "search"})
+
+
+def _is_code_field(e: dict, code: re.Pattern) -> bool:
+    """A code box: a one-time-code field, one labelled with a code word, or one box of a code typed one
+    digit per box ("digit 1 of six")."""
+    if e["tag"] != "input" or e["type"] not in _CODE_TYPES:
+        return False
+    named = e.get("auto") == "one-time-code" or code.search(norm(f"{_label(e)} {e['name']}"))
+    return bool(named) or e.get("maxlength") == 1 or bool(_DIGIT.search(norm(_label(e))))
+
+
+def _entry(e: dict, cap: int, code: re.Pattern) -> dict:
     if not _is_field(e):
         tag = "link" if e["tag"] == "a" or e["role"] == "link" else e["role"] or "button"
         out = {"ref": e["ref"], "tag": tag, "text": _name(e)}
@@ -328,7 +349,8 @@ def _entry(e: dict, cap: int) -> dict:
         out = {"ref": e["ref"], "type": e["type"], "label": _label(e)}
         if e["role"]:
             out["role"] = e["role"]
-        if e["value"] and e["type"] not in ("checkbox", "radio", "password"):
+        # never a code's value: neither the model nor the trace may see it
+        if e["value"] and e["type"] not in ("checkbox", "radio", "password") and not _is_code_field(e, code):
             out["value"] = e["value"]
         if e["options"]:
             out["options"] = _options(e["options"], cap)
@@ -338,12 +360,12 @@ def _entry(e: dict, cap: int) -> dict:
     return out
 
 
-def _entries(kept: list[dict], cap: int) -> list[tuple[dict, list[int]]]:
+def _entries(kept: list[dict], cap: int, code: re.Pattern) -> list[tuple[dict, list[int]]]:
     """(view entry, its refs) in page order; the radios of one question are one entry with options."""
     out, groups = [], {}
     for e in kept:
         if e["type"] != "radio":
-            out.append((_entry(e, cap), [e["ref"]]))
+            out.append((_entry(e, cap, code), [e["ref"]]))
             continue
         key = (tuple(e["frame"]), e["name"] or e["group"] or e["ref"])
         if key not in groups:
@@ -388,7 +410,8 @@ def read(page, agent_cfg: dict) -> Snapshot:
         via_label = not shown and e["type"] in ("radio", "checkbox") and any(map(_visible, e["labels"]))
         if (shown or via_label or e["type"] == "file") and not _is_honeypot(e):
             kept.append({**e, "via_label": via_label})
-    entries = _entries(kept, agent_cfg["max_options"])
+    code = words(agent_cfg["code_words"])
+    entries = _entries(kept, agent_cfg["max_options"], code)
     view = {
         "url": raw["url"],
         "title": raw["title"],
@@ -404,7 +427,9 @@ def read(page, agent_cfg: dict) -> Snapshot:
         text = json.dumps(view, ensure_ascii=False, separators=(",", ":"))
     shown_refs = {r for _, refs in entries[: len(view["elements"])] for r in refs}
     refs = {e["ref"]: e for e in kept if e["ref"] in shown_refs}
-    return Snapshot(view, text, refs, password, _captcha(raw, kept, agent_cfg), _missing(kept))
+    said = [*raw["headings"], *(f"{_label(e)} {e['name']}" for e in kept if _is_field(e))]
+    code_page = any(code.search(norm(t)) for t in said) or any(e.get("auto") == "one-time-code" for e in kept)
+    return Snapshot(view, text, refs, password, _captcha(raw, kept, agent_cfg), code_page, _missing(kept))
 
 
 def _captcha(raw: dict, kept: list[dict], agent_cfg: dict) -> bool:
@@ -431,6 +456,14 @@ def _click(root, selector: str, live: dict, rules: ClickRules, filled: int, time
     target.click(timeout=timeout_ms)
 
 
+def _where(page, e: dict):
+    """(the frame that holds e, its selector)."""
+    root = page
+    for k in e["frame"]:
+        root = root.frame_locator(f'[data-jobapplier-frame="{k}"]')
+    return root, f'[data-jobapplier="{e["ref"]}"]'
+
+
 def act(page, snap: Snapshot, action: dict, pdf: Path, rules: ClickRules, filled: int, timeout_ms: float):
     """Does one model action ({"op", "ref", "value"?}) or raises RefusedError. An upload always puts pdf in:
     the model never names a file."""
@@ -438,10 +471,7 @@ def act(page, snap: Snapshot, action: dict, pdf: Path, rules: ClickRules, filled
     e = snap.refs.get(ref) if isinstance(ref, int) and not isinstance(ref, bool) else None
     if e is None:
         raise RefusedError(f"no element {ref!r} on this page")
-    root = page
-    for k in e["frame"]:
-        root = root.frame_locator(f'[data-jobapplier-frame="{k}"]')
-    selector = f'[data-jobapplier="{ref}"]'
+    root, selector = _where(page, e)
     live = root.locator(selector).evaluate(_LIVE)
     op = action.get("op")
     if live["disabled"]:
@@ -451,11 +481,11 @@ def act(page, snap: Snapshot, action: dict, pdf: Path, rules: ClickRules, filled
     if op not in _FITS:
         raise RefusedError(f"not an action: {op!r}")
     if live["type"] == "password" or live["pw_form"]:
-        raise RefusedError("a password field or a form with one: the owner signs in", account=True)
+        raise RefusedError("a password field or a form with one: the owner signs in", stop="needs_account")
     if op == "fill" and (
         live["auto"] == "one-time-code" or rules.code.search(norm(f"{_label(e)} {e['name']}"))
     ):
-        raise RefusedError("a verification code: the owner types it", account=True)
+        raise RefusedError("a verification code: JobApplier reads it from the mail", stop="needs_code")
     types, roles = _FITS[op]
     if live["type"] not in types and live["role"] not in roles:
         raise RefusedError(f"{op} does not fit a {live['type'] or live['role'] or live['tag']} element")
@@ -476,3 +506,70 @@ def act(page, snap: Snapshot, action: dict, pdf: Path, rules: ClickRules, filled
         target.uncheck(timeout=timeout_ms)
     else:
         target.set_input_files(str(pdf), timeout=timeout_ms)
+
+
+def _code_fields(snap: Snapshot, rules: ClickRules) -> list[dict]:
+    """The code inputs in page order: the boxes of a code typed one digit per box, else the one field."""
+    fields = [e for e in snap.refs.values() if _is_code_field(e, rules.code) and not e["disabled"]]
+    boxes = [e for e in fields if e.get("maxlength") == 1 or _DIGIT.search(norm(_label(e)))]
+    return boxes if len(boxes) > 1 else fields[:1]
+
+
+def fill_code(page, snap: Snapshot, code: str, rules: ClickRules, timeout_ms: float) -> None:
+    """Types a code read from the owner's mail: one digit per box, or the whole code in its one field.
+    The model never gives the code; this is the only fill outside act."""
+    if not snap.code_page:
+        raise RefusedError("not a verification code page")
+    fields = _code_fields(snap, rules)
+    parts = list(code) if len(fields) > 1 else [code]
+    if not fields or len(parts) != len(fields):
+        raise RefusedError(f"{len(fields)} code fields for a {len(code)}-character code")
+    for e, part in zip(fields, parts, strict=True):
+        root, selector = _where(page, e)
+        live = root.locator(selector).evaluate(_LIVE)
+        if live["type"] not in _CODE_TYPES or live["pw_form"]:
+            raise RefusedError("a code field that is not a plain text box", stop="needs_account")
+        root.locator(selector).fill(part, timeout=timeout_ms)
+
+
+def _click_verify(page, snap: Snapshot, ref: int, rules: ClickRules, timeout_ms: float) -> None:
+    """The one other click: the verify button of a code page, whose name often has a submit word. Only on a
+    page that asks for a code and has few other fields, so it can never be an application's submit."""
+    if not snap.code_page:
+        raise RefusedError("not a verification code page")
+    codes = {e["ref"] for e in _code_fields(snap, rules)}
+    others = [e for e in snap.refs.values() if _is_field(e) and e["ref"] not in codes and e["type"] != "file"]
+    if len(others) > rules.code_page_max_fields:
+        raise RefusedError(f"{len(others)} other fields: not a verification code page")
+    e = snap.refs.get(ref)
+    if e is None or _is_field(e):
+        raise RefusedError("not a button on this page")
+    root, selector = _where(page, e)
+    live = root.locator(selector).evaluate(_LIVE)
+    names = [norm(live[k]) for k in _SOURCES]
+    visible = ClickRules._visible(live)
+    start = rules.verify_start.match(visible)
+    if (
+        any(_foreign(live[k]) for k in _SOURCES)
+        or not start
+        or len(visible[start.end() :].split()) > 2
+        or any(rules.apply.search(n) or rules.sign_in.search(n) or "application" in n.split() for n in names)
+        or live["disabled"]
+    ):
+        raise RefusedError(f"not a verify button: {visible!r}")
+    if live["tag"] == "input":
+        value = live["value"].replace("\\", "\\\\").replace('"', '\\"')
+        target = root.locator(f'{selector}[value="{value}" i]')
+    else:  # bound to the checked text, which Playwright checks again on every retry
+        text = r"\W+".join(map(re.escape, live["text"].split()))
+        target = root.locator(selector).filter(has_text=re.compile(rf"^\W*{text}\W*$", re.IGNORECASE))
+    target.click(timeout=timeout_ms)
+
+
+def verify(page, snap: Snapshot, rules: ClickRules, timeout_ms: float) -> str:
+    """Clicks the code page's verify button; returns its name."""
+    for ref, e in snap.refs.items():
+        if not _is_field(e) and rules.verify_start.match(norm(_name(e))):
+            _click_verify(page, snap, ref, rules, timeout_ms)
+            return _name(e)
+    raise RefusedError("no verify button on the code page")

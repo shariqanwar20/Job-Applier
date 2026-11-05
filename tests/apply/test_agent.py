@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from playwright.sync_api import Error as PlaywrightError
@@ -8,8 +9,20 @@ from jobapplier.apply.agent import Application, resume_text
 from jobapplier.apply.page import ClickRules
 from jobapplier.apply.targets import Target
 from jobapplier.llm import LlmError
+from jobapplier.mail.gmail import MailError
 from jobapplier.resume.master import parse
-from tests.apply.fakes import CAPTCHA, FakeLlm, FakePage, answer, btn, el, link, owner_goes_to, state
+from tests.apply.fakes import (
+    CAPTCHA,
+    FakeGmail,
+    FakeLlm,
+    FakePage,
+    answer,
+    btn,
+    el,
+    link,
+    owner_goes_to,
+    state,
+)
 
 VALUES = {"name.first": "Alex", "email": "alex@example.com", "phone": "+1 416 555 0100"}
 RESUME = "Experience\n- RESUME-LINE built a billing service"
@@ -36,14 +49,24 @@ def job(config, tmp_path):
     return target, config, tmp_path / "logs"
 
 
-def make(job, page, llm):
+NOW = datetime(2026, 11, 4, 19, 0, tzinfo=UTC)
+
+
+def clock():
+    """A minute later at every look: the start of each step."""
+    times = (NOW + timedelta(minutes=i) for i in range(1000))
+    return lambda: next(times)
+
+
+def make(job, page, llm, gmail=None):
     target, cfg, logs = job
-    return Application(page, target, cfg, VALUES, RESUME, llm, ClickRules.from_config(cfg["apply"]), logs)
+    rules = ClickRules.from_config(cfg["apply"])
+    return Application(page, target, cfg, VALUES, RESUME, llm, rules, logs, gmail=gmail, now=clock())
 
 
-def run(job, page, llm):
+def run(job, page, llm, gmail=None):
     """One loop to its first stop, with no waiting for the owner."""
-    app = make(job, page, llm)
+    app = make(job, page, llm, gmail)
     app.advance()
     return app.finish()
 
@@ -350,3 +373,96 @@ def test_max_handoffs_is_respected(job):
         assert app.wait_for_owner()
         app.advance()
     assert len(llm.calls) == 3 and app.status == "needs_owner" and len(app.handoffs) == 2
+
+
+# --- verification codes from the owner's mail ---
+
+CODE = "482913"
+ORACLE = "https://fa-x.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/apply"
+EMAIL_PAGE = state(el(1, "Email"), btn(2, "Next", goes=1), url=ORACLE)
+CODE_PAGE = state(
+    *[el(10 + i, f"digit {i} of six", type="tel", maxlength=1) for i in range(1, 7)],
+    btn(17, "Verify", goes=2),
+    headings=["Confirm your identity", "Enter the verification code we sent to your email"],
+    url=ORACLE,
+)
+AFTER_CODE = state(el(20, "City"), url=ORACLE)
+MAIL = {"code": CODE, "sender": "Oracle <no-reply@oraclecloud.com>", "received": NOW + timedelta(minutes=1)}
+
+
+def email_then_ready():
+    return FakeLlm(
+        [
+            answer({"op": "fill", "ref": 1, "value": "alex@example.com"}, {"op": "click", "ref": 2}),
+            answer(status="ready_to_submit"),
+        ]
+    )
+
+
+def test_a_code_from_the_mail_is_filled_digit_by_digit_and_verified_without_a_model_call(job, caplog):
+    _, _, logs = job
+    caplog.set_level(logging.INFO)
+    page = FakePage([EMAIL_PAGE, CODE_PAGE, AFTER_CODE])
+    llm, gmail = email_then_ready(), FakeGmail(MAIL)
+    result = run(job, page, llm, gmail)
+    assert page.done[1:] == [("fill", 10 + i, d) for i, d in zip(range(1, 7), CODE, strict=True)]
+    assert page.clicks == ["Next", "Verify"] and result["status"] == "ready_to_submit"
+    assert len(llm.calls) == 2  # the code page took no model call
+    domains, after = gmail.calls[0]
+    assert domains[0] == "oraclecloud.com" and "myworkdayjobs.com" in domains
+    assert after == NOW - timedelta(seconds=60)  # the start of the step that sent the code, less a minute
+    assert "code filled from Oracle <no-reply@oraclecloud.com>" in llm.calls[1]["prompt"]
+    trace = (logs / "apply-J7.json").read_text()
+    assert "code filled from Oracle <no-reply@oraclecloud.com>" in trace
+    assert "Oracle <no-reply@oraclecloud.com>" in caplog.text and "19:01" in caplog.text
+    assert CODE not in trace and CODE not in caplog.text and CODE not in llm.calls[1]["prompt"]
+
+
+def test_a_single_code_field_is_filled(job):
+    page = FakePage([state(el(1, "Verification code"), btn(2, "Verify", goes=1)), AFTER_CODE])
+    result = run(job, page, FakeLlm([answer(status="ready_to_submit")]), FakeGmail(MAIL))
+    assert (
+        page.done == [("fill", 1, CODE)]
+        and page.clicks == ["Verify"]
+        and result["status"] == "ready_to_submit"
+    )
+
+
+def test_no_code_in_the_mail_hands_off_to_the_owner(job):
+    _, cfg, _ = job
+    cfg["apply"]["agent"]["code_wait_seconds"] = 15
+    page = FakePage([CODE_PAGE])
+    gmail = FakeGmail(None)
+    app = make(job, page, FakeLlm([answer()]), gmail)
+    app.advance()
+    assert (
+        app.status == "needs_account" and app.waiting and app.note.startswith("type the code from your email")
+    )
+    assert len(gmail.calls) == 4 and page.waits.count(5000) == 3 and page.done == []
+
+
+@pytest.mark.parametrize("gmail", [None, FakeGmail(error=MailError("mail: sign in again"))])
+def test_mail_off_or_failing_hands_off_to_the_owner(gmail, job):
+    page = FakePage([CODE_PAGE])
+    app = make(job, page, FakeLlm([answer()]), gmail)
+    app.advance()
+    assert app.status == "needs_account" and app.note.startswith("type the code from your email")
+    assert 5000 not in page.waits and page.done == []
+
+
+def test_a_code_is_filled_once_and_a_page_that_asks_again_goes_to_the_owner(job):
+    _, cfg, _ = job
+    cfg["apply"]["agent"]["code_wait_seconds"] = 5
+    page = FakePage([CODE_PAGE])
+    page.states[0]["elements"][-1].pop("goes")  # Verify does not get past the page: a wrong code
+    app = make(job, page, FakeLlm([answer()]), FakeGmail(MAIL))
+    app.advance()
+    assert len([d for d in page.done if d[0] == "fill"]) == 6 and page.clicks == ["Verify"]
+    assert app.status == "needs_account" and app.note.startswith("type the code from your email")
+
+
+def test_the_model_saying_needs_code_on_a_page_without_code_words_hands_off(job):
+    page = FakePage([state(el(1, "Pin"), btn(2, "Go"))])
+    app = make(job, page, FakeLlm([answer(status="needs_code")]), FakeGmail(MAIL))
+    app.advance()
+    assert app.status == "needs_account" and page.done == [] and page.clicks == []

@@ -73,6 +73,7 @@ def run_apply(
     today=date.today,
     prompt: bool = True,
     wait: bool = True,
+    gmail=None,
 ) -> dict:
     """Runs the agent on up to apply.max_tabs ready rows in browser(), each in its own tab, then asks which
     ones the owner submitted. Without prompt it asks nothing, marks nothing and closes Chrome.
@@ -81,7 +82,8 @@ def run_apply(
     a code, a captcha, a question) are taken one at a time: each waits for the owner and goes on.
 
     browser is a context manager giving a browser context; it closes Chrome on exit. llm_run is
-    llm.run_with_cost without claude and timeout; values is profile_values; resume is the master's text.
+    llm.run_with_cost without claude and timeout; values is profile_values; resume is the master's text;
+    gmail reads verification codes (None: mail is off, and the owner types them).
     """
     ensure_tailor_schema(client, cfg["notion"]["data_source_id"])
     targets, skipped = find_targets(conn, client, cfg, rules, job_id)
@@ -105,7 +107,7 @@ def run_apply(
             blank = n == 0 and context.pages and context.pages[0].url in ("", "about:blank")
             page = context.pages[0] if blank else context.new_page()
             result["opened"] += 1
-            app = Application(page, t, cfg, values, resume, llm_run, click_rules, log_dir)
+            app = Application(page, t, cfg, values, resume, llm_run, click_rules, log_dir, gmail=gmail)
             if _guarded(app, app.advance, say):
                 apps.append(app)
                 if wait and app.waiting:

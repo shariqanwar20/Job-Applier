@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from jobapplier.apply import page as page_mod
-from jobapplier.apply.page import ClickRules, RefusedError, act, read
+from jobapplier.apply.page import ClickRules, RefusedError, act, fill_code, read, verify
 from tests.apply.fakes import SHOWN, FakePage, btn, el, link, state
 from tests.conftest import ROOT
 
@@ -296,7 +296,7 @@ def test_a_password_field_or_a_field_in_a_password_form_is_never_filled(agent_cf
     for ref in (1, 2):
         with pytest.raises(RefusedError) as info:
             act(page, s, {"op": "fill", "ref": ref, "value": "x"}, PDF, rules, 0, 1000)
-        assert info.value.account
+        assert info.value.stop == "needs_account"
     assert page.done == []
 
 
@@ -329,13 +329,95 @@ def test_a_verification_code_is_never_typed(element, agent_cfg, rules):
     page = FakePage([state(element)])
     with pytest.raises(RefusedError) as info:
         run_act(agent_cfg, rules, page, {"op": "fill", "ref": 1, "value": "123456"})
-    assert info.value.account and page.done == []
+    assert info.value.stop == "needs_code" and page.done == []  # JobApplier reads it from the mail
 
 
 def test_postal_code_is_not_a_verification_code(agent_cfg, rules):
     page = FakePage([state(el(1, "Postal code"))])
     run_act(agent_cfg, rules, page, {"op": "fill", "ref": 1, "value": "M5V 1A1"})
     assert page.done == [("fill", 1, "M5V 1A1")]
+
+
+# --- verification codes: JobApplier fills a code read from the owner's mail ---
+
+BOXES = [el(i, f"digit {i} of six", type="tel", maxlength=1) for i in range(1, 7)]
+CODE_HEADINGS = ["Confirm your identity", "Enter the verification code we sent to your email"]
+
+
+def code_page(*extra, button="Verify"):
+    return FakePage([state(*BOXES, btn(7, button), *extra, headings=CODE_HEADINGS)])
+
+
+def test_a_code_page_is_found_by_its_headings_or_labels(agent_cfg):
+    assert snap(agent_cfg, el(1, "Code"), headings=["Enter the verification code"]).code_page
+    assert snap(agent_cfg, el(1, "Security code")).code_page
+    assert snap(agent_cfg, el(1, "Code", auto="one-time-code")).code_page
+    assert not snap(agent_cfg, el(1, "Postal code"), headings=["Your details"]).code_page
+
+
+def test_the_snapshot_never_shows_a_code_fields_value(agent_cfg):
+    boxes = [{**b, "value": d} for b, d in zip(BOXES, "482913", strict=True)]
+    s = snap(agent_cfg, *boxes, el(8, "Security code", value="482913"), headings=CODE_HEADINGS)
+    assert "482913" not in s.text and '"value"' not in s.text
+
+
+def test_a_six_box_code_is_filled_one_digit_per_box(agent_cfg, rules):
+    page = code_page()
+    fill_code(page, read(page, agent_cfg), "482913", rules, 1000)
+    assert page.done == [("fill", i, d) for i, d in zip(range(1, 7), "482913", strict=True)]
+
+
+def test_a_single_code_field_is_filled(agent_cfg, rules):
+    page = FakePage([state(el(1, "Verification code"), btn(2, "Verify"))])
+    fill_code(page, read(page, agent_cfg), "482913", rules, 1000)
+    assert page.done == [("fill", 1, "482913")]
+
+
+def test_a_code_is_not_filled_off_a_code_page_or_into_boxes_that_do_not_fit(agent_cfg, rules):
+    page = code_page()
+    with pytest.raises(RefusedError, match="fields"):
+        fill_code(page, read(page, agent_cfg), "4829", rules, 1000)
+    page = FakePage([state(el(1, "Email"))])
+    with pytest.raises(RefusedError, match="code page"):
+        fill_code(page, read(page, agent_cfg), "482913", rules, 1000)
+    assert page.done == []
+
+
+def test_verify_clicks_the_code_pages_verify_button(agent_cfg, rules):
+    page = code_page(btn(8, "Resend code"))
+    assert verify(page, read(page, agent_cfg), rules, 1000) == "Verify"
+    assert page.clicks == ["Verify"]
+
+
+@pytest.mark.parametrize("text", ["Verify", "Confirm", "Continue", "Next", "Submit code", "Verify email"])
+def test_click_verify_clicks_these_names_on_a_code_page(text, agent_cfg, rules):
+    page = code_page(button=text)
+    page_mod._click_verify(page, read(page, agent_cfg), 7, rules, 1000)
+    assert page.clicks == [text]
+
+
+def test_click_verify_refuses_off_a_code_page(agent_cfg, rules):
+    page = FakePage([state(el(1, "Email"), btn(2, "Verify"))])
+    with pytest.raises(RefusedError, match="code page"):
+        page_mod._click_verify(page, read(page, agent_cfg), 2, rules, 1000)
+    assert page.clicks == []
+
+
+def test_click_verify_refuses_on_a_page_with_too_many_other_fields(agent_cfg, rules):
+    page = code_page(*[el(10 + i, f"Question {i}") for i in range(9)])
+    with pytest.raises(RefusedError, match="fields"):
+        page_mod._click_verify(page, read(page, agent_cfg), 7, rules, 1000)
+    assert page.clicks == []
+
+
+@pytest.mark.parametrize(
+    "text", ["Submit application", "Confirm application", "Apply", "Sign in", "Confirm and apply now", "Back"]
+)
+def test_click_verify_refuses_anything_but_a_verify_button(text, agent_cfg, rules):
+    page = code_page(button=text)
+    with pytest.raises(RefusedError):
+        page_mod._click_verify(page, read(page, agent_cfg), 7, rules, 1000)
+    assert page.clicks == []
 
 
 @pytest.mark.parametrize(
@@ -451,18 +533,20 @@ def _calls(attrs: tuple[str, ...]) -> tuple[list, list]:
     return found, everywhere
 
 
-def test_the_only_click_is_in_the_guarded_click():
+def test_the_only_clicks_are_the_guarded_click_and_the_code_pages_verify():
     found, everywhere = _calls(("click", "dblclick", "tap"))
-    assert found == [("page.py", "_click", "click")] and len(everywhere) == 1
+    assert found == [("page.py", "_click", "click"), ("page.py", "_click_verify", "click")]
+    assert len(everywhere) == 2
     # a click in a page script string counts too
-    assert sum(len(re.findall(r"\.click\(", p.read_text(), re.I)) for p in APPLY_CODE) == 1
+    assert sum(len(re.findall(r"\.click\(", p.read_text(), re.I)) for p in APPLY_CODE) == 2
 
 
 def test_field_changes_happen_only_in_act():
     found, everywhere = _calls(
         ("fill", "select_option", "check", "uncheck", "set_input_files", "set_checked")
     )
-    assert {(f, fn) for f, fn, _ in found} == {("page.py", "act")} and len(everywhere) == 5
+    assert {(f, fn) for f, fn, _ in found} == {("page.py", "act"), ("page.py", "fill_code")}
+    assert len(everywhere) == 6
 
 
 def test_the_snapshot_script_reads_frames_and_only_tags_elements():
