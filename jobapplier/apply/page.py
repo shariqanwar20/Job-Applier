@@ -454,6 +454,11 @@ def _click(root, selector: str, live: dict, rules: ClickRules, filled: int, time
     else:
         aria = live["aria"].replace("\\", "\\\\").replace('"', '\\"')
         target = root.locator(f'{selector}[aria-label="{aria}" i]')
+    if live["role"] in ("option", "menuitem", "treeitem") and live["text"].strip():
+        # a custom dropdown (Workday) acts on its option's inner text, not on the row's padded middle
+        inner = target.get_by_text(live["text"].strip(), exact=True)
+        if inner.count():
+            target = inner.first
     target.click(timeout=timeout_ms)
 
 

@@ -94,6 +94,7 @@ Rules:
   unpicks it, so never click a checked option. Once the value shows as picked, move on.
 - Toggle-style answers (Yes/No buttons, days of the week, a title like Mr.) are clicked; use the question
   text that comes before them on the page.
+- "Have you worked for this company before?" (or "previous employee"): No, unless my resume lists it.
 - When my profile or resume does not answer a required field, leave it and keep doing everything else on
   the page first. Return status "needs_owner" (naming the fields) only when nothing else on the page can
   be done.

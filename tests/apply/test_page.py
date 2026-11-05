@@ -555,3 +555,10 @@ def test_the_snapshot_script_reads_frames_and_only_tags_elements():
     assert "contentDocument" in script and "data-jobapplier-frame" in script
     assert "['data-jobapplier', 'data-jobapplier-label', 'data-jobapplier-frame']" in script  # old tags go
     assert not re.search(r"\.(click|submit|focus|dispatchEvent)\b", script)
+
+
+def test_an_option_click_goes_to_the_options_inner_text(agent_cfg, rules):
+    # Workday: a click on the option row's middle did nothing; its inner text takes the click
+    page = FakePage([state(el(1, type="", tag="div", role="option", text="Canada (+1)"))])
+    run_act(agent_cfg, rules, page, {"op": "click", "ref": 1})
+    assert page.inner_text_lookups == ["Canada (+1)"] and page.clicks == ["Canada (+1)"]

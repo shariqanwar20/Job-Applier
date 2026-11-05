@@ -107,6 +107,13 @@ class FakeLocator:
     def filter(self, has_text):
         return FakeLocator(self.page, self.ref, has_text=has_text)
 
+    def get_by_text(self, text, exact):
+        self.page.inner_text_lookups.append(text)
+        return self
+
+    def count(self):
+        return 1
+
     def _do(self, method, arg=None):
         e = self._el()
         if e.get("broken"):
@@ -151,6 +158,7 @@ class FakePage:
         self.broken = None  # an exception the next snapshot raises
         self.on_wait = None  # called with each wait's ms: the owner acting while JobApplier waits
         self.fronted = 0
+        self.inner_text_lookups = []  # texts a click looked up inside its element (a dropdown option)
         self.context = SimpleNamespace(pages=[self])
 
     def __deepcopy__(self, memo):
