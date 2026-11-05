@@ -5,12 +5,14 @@ Each application is its own loop with no shared conversation: every call gets th
 the steps so far (refusals included) and the page now.
 """
 
+import functools
 import hashlib
 import json
 import logging
 from contextlib import suppress
 from pathlib import Path
 
+import pypdf
 from playwright.sync_api import Error as PlaywrightError
 
 from jobapplier.apply.browser import LOGIN_NOTE, banner
@@ -75,7 +77,10 @@ Rules:
 - For a custom dropdown, click it or fill its text, then click the option in the next turn.
 - When this page is complete, click Next or Continue to go on.
 - Never click the final submit. When only submitting is left, return status "ready_to_submit".
-- At a sign-in, account creation or email verification step, return status "needs_account".
+- A page that only asks for my email (or phone) to start the application, often saying no account is needed,
+  is not a sign-in: fill my email, tick its required consent boxes and click Next.
+- Return status "needs_account" only when the page asks for a password, asks me to sign in to an existing
+  account, or asks for a verification code sent to my email or phone.
 - When you cannot go on (a question you cannot answer truthfully, an error you cannot fix), return status
   "needs_owner" and say why in note.
 - Otherwise return status "continue" with this turn's actions.
@@ -107,8 +112,17 @@ def resume_text(items: list[Item]) -> str:
     return "\n".join(out)
 
 
+@functools.cache
+def _pdf_text(pdf: Path | None) -> str:
+    try:
+        return "\n".join(p.extract_text() or "" for p in pypdf.PdfReader(pdf).pages).strip() if pdf else ""
+    except (OSError, pypdf.errors.PyPdfError):
+        return ""
+
+
 def _prompt(target: Target, cfg: dict, values: dict, resume: str, history: list[str], snap: Snapshot) -> str:
     profile = "\n".join(f"- {k}: {v}" for k, v in values.items() if v)
+    resume = _pdf_text(target.pdf) or resume  # the tailored PDF has employers and dates; master lines do not
     description = target.description[: cfg["apply"]["agent"]["description_chars"]]
     steps = "\n".join(history) or "(none: this is the first step)"
     return (
