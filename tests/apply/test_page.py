@@ -187,6 +187,7 @@ REFUSED = [
     names("Reset", type="reset"),
     names("Privacy policy", tag="a", type=""),  # a link away from the form
     names("Next month", tag="a", type=""),
+    names("Next job", tag="a", type=""),  # another posting, not this form's next step
     names("Resume", tag="input", type="file"),  # opens a file chooser: upload only
     names("Email", tag="input", type="text"),
 ]

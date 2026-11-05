@@ -108,4 +108,4 @@ apply:  # `apply` runs one Haiku agent per ready row in Chrome; you check the fo
   apply_words: [apply, apply now, apply for this job, apply for this position, apply to this job, start application, start your application, begin application]
   next_words: [next, continue, proceed, save and continue, save and next, save & continue, go to next]
   next_max_extra_words: 5
-  next_deny_words: [month, year, week, day, slide, image, photo, video, page, pages, results, jobs, article, reading, story, payment, checkout, cart, tour, tip]
+  next_deny_words: [month, year, week, day, slide, image, photo, video, page, pages, results, job, jobs, opening, role, article, reading, story, payment, checkout, cart, tour, tip]
