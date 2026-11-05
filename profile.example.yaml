@@ -5,8 +5,11 @@ name:
 email: alex@example.com
 phone: "+1 416 555 0100"
 location:
+  address_line_1: 100 Example Street
+  address_line_2: ""
   city: Toronto
   province: Ontario
+  postal_code: M5V 0A1
   country: Canada
 links:
   linkedin: https://www.linkedin.com/in/alex-example
