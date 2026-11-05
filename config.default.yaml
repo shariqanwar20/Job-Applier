@@ -102,18 +102,31 @@ apply:  # `apply` runs one Haiku agent per ready row in Chrome; you check the fo
     # It polls every poll_seconds for up to wait_for_owner_seconds; once the page has changed and stays the
     # same for one poll, with no password field or captcha left, the loop goes on. At most max_handoffs.
     poll_seconds: 3
+    resume_stable_polls: 3         # polls the changed page must stay the same: the owner is done, not typing
     wait_for_owner_seconds: 300
     max_handoffs: 3
     captcha_hosts: [captcha-delivery.com, hcaptcha.com, google.com/recaptcha, recaptcha.net, challenges.cloudflare.com, arkoselabs]
     # Verification codes: a page whose headings or field labels have one of code_words (or a field with
     # autocomplete="one-time-code") asks for a code. JobApplier reads it from your Gmail (read-only, after
-    # `mail-login`): from the page's domain or code_sender_domains, mailed from a minute before the step
+    # `mail-login`): from the page's domain or its code_senders, mailed from a minute before the step
     # that sent it. It checks every code_poll_seconds for up to code_wait_seconds, types it (one digit per
     # box where the page has one box per digit) and clicks the button whose name starts with one of
     # verify_words, on a page with at most code_page_max_fields other fields. No code, or no mail: it waits
     # for you to type it. The model never types a code.
     code_words: [verification code, verify code, security code, confirmation code, confirm your identity, enter the code, one time code, one time password, one time passcode, otp, passcode, 6 digit code, six digit code, authentication code]
-    code_sender_domains: [oraclecloud.com, myworkdayjobs.com, myworkday.com, workday.com, greenhouse.io, greenhouse-mail.io, lever.co, ashbyhq.com, smartrecruiters.com, icims.com, taleo.net, successfactors.com]
+    # Page host (or a suffix of it) -> the domains its code mail comes from. Any other host: only its own
+    # registrable domain, so a page on an unknown site never reads an ATS's mail.
+    code_senders:
+      oraclecloud.com: [oraclecloud.com, oracle.com]
+      taleo.net: [taleo.net, oracle.com]
+      myworkdayjobs.com: [myworkday.com, workday.com, myworkdayjobs.com]
+      myworkday.com: [myworkday.com, workday.com]
+      greenhouse.io: [greenhouse.io, greenhouse-mail.io]
+      lever.co: [lever.co]
+      ashbyhq.com: [ashbyhq.com]
+      smartrecruiters.com: [smartrecruiters.com]
+      icims.com: [icims.com]
+      successfactors.com: [successfactors.com, sap.com]
     code_poll_seconds: 5
     code_wait_seconds: 180
     verify_words: [verify, confirm, continue, next, submit code]
@@ -124,9 +137,9 @@ apply:  # `apply` runs one Haiku agent per ready row in Chrome; you check the fo
   # yet (the job page's start button, never a form's final Apply). A link, or a button that submits its
   # form, is clicked only when its visible text starts with one of next_words and has at most
   # next_max_extra_words more words, none in next_deny_words.
-  submit_stems: [submi, send, sent, finish, final, complet, confirm, done, post]
+  submit_stems: [submi, send, sent, finish, final, complet, confirm, done, post, soumet, soumis, envoy, termin]
   sign_in_words: [sign in, signin, log in, login, create account, create an account, sign up, signup, register, continue with, sign in with, log in with, apply with]
-  apply_words: [apply, apply now, apply for this job, apply for this position, apply to this job, start application, start your application, begin application]
+  apply_words: [apply, apply now, apply for this job, apply for this position, apply to this job, start application, start your application, begin application, postuler, postulez, postuler maintenant]
   next_words: [next, continue, proceed, save and continue, save and next, save & continue, go to next]
   next_max_extra_words: 5
   next_deny_words: [month, year, week, day, slide, image, photo, video, page, pages, results, job, jobs, opening, role, article, reading, story, payment, checkout, cart, tour, tip]

@@ -47,6 +47,7 @@ def el(ref, label="", type="text", tag=None, visible=True, **kw):
         "title": "",
         "form": False,
         "pw_form": False,
+        "form_fields": 0,
         "auto": "",
         "maxlength": None,
         **kw,
@@ -101,6 +102,7 @@ class FakeLocator:
             "form",
             "pw_form",
             "auto",
+            "form_fields",
         )
         return {k: e[k] for k in keys} | {"disabled": e["disabled"]}
 
@@ -145,6 +147,7 @@ class FakeLocator:
             raise PlaywrightError(f"Timeout {timeout}ms exceeded: no element matches")
         self.page.clicks.append(e["text"] or e["value"] or e["aria"])
         if "opens" in e:
+            e["opens"].opened_by = self.page
             self.page.context.pages.append(e["opens"])
         if "goes" in e:
             self.page.at = e["goes"]
@@ -158,7 +161,12 @@ class FakePage:
         self.broken = None  # an exception the next snapshot raises
         self.on_wait = None  # called with each wait's ms: the owner acting while JobApplier waits
         self.fronted = 0
-        self.inner_text_lookups = []  # texts a click looked up inside its element (a dropdown option)
+        self.inner_text_lookups = []
+        self.opened_by, self.cleared, self.masks = (
+            None,
+            0,
+            [],
+        )  # texts a click looked up inside its element (a dropdown option)
         self.context = SimpleNamespace(pages=[self])
 
     def __deepcopy__(self, memo):
@@ -182,14 +190,21 @@ class FakePage:
     def bring_to_front(self):
         self.fronted += 1
 
-    def screenshot(self, path, full_page):
+    def opener(self):
+        return self.opened_by
+
+    def screenshot(self, path, full_page, mask=()):
         assert full_page
         self.shots.append(path)
+        self.masks.append([m.ref for m in mask])
         Path(path).write_bytes(b"PNG")
 
     def evaluate(self, script, arg=None):
         if arg is not None:
             self.banners.append(arg)
+            return None
+        if "jobapplier-banner" in script:  # the note taken off the page
+            self.cleared += 1
             return None
         if self.broken:
             raise self.broken

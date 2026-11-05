@@ -40,6 +40,8 @@ def names(text="", **kw):
         "title": "",
         "form": True,
         "pw_form": False,
+        "form_fields": 0,
+        "auto": "",
         "disabled": False,
         **kw,
     }
@@ -195,7 +197,7 @@ REFUSED = [
 
 @pytest.mark.parametrize("live", REFUSED, ids=lambda n: n["text"] or n["value"] or n["type"])
 def test_the_click_guard_refuses_submit_sign_in_and_leaving_controls(live, rules):
-    assert rules.refuse(live, filled=0)
+    assert rules.refuse(live, fresh=True)
 
 
 ALLOWED = [
@@ -216,7 +218,7 @@ ALLOWED = [
 
 @pytest.mark.parametrize("live", ALLOWED, ids=lambda n: n["text"] or n["value"])
 def test_the_click_guard_allows_steps_and_form_widgets(live, rules):
-    assert rules.refuse(live, filled=3) is None
+    assert rules.refuse(live, fresh=False) is None
 
 
 @pytest.mark.parametrize(
@@ -231,17 +233,34 @@ def test_the_click_guard_allows_steps_and_form_widgets(live, rules):
     ids=lambda n: n["text"],
 )
 def test_apply_is_allowed_on_a_fresh_job_page_and_refused_once_anything_is_filled(live, rules):
-    assert rules.refuse(live, filled=0) is None
-    assert "Apply" in rules.refuse(live, filled=1)
+    assert rules.refuse(live, fresh=True) is None
+    assert "Apply" in rules.refuse(live, fresh=False)
+
+
+@pytest.mark.parametrize(
+    "live",
+    [
+        names("Apply", type="submit", form_fields=4),
+        names("", tag="input", type="submit", value="Apply now", form_fields=1),
+    ],
+    ids=lambda n: n["text"] or n["value"],
+)
+def test_a_forms_own_apply_submit_is_refused_even_on_a_fresh_page(live, rules):
+    assert "Apply" in rules.refuse(live, fresh=True)
+
+
+@pytest.mark.parametrize("text", ["Postuler", "Soumettre", "Envoyer", "Terminer", "Confirmer"])
+def test_french_submit_and_apply_words_are_known(text, rules):
+    assert rules.refuse(names(text, type="submit", form_fields=2), fresh=True)
 
 
 def test_the_click_binding_rejects_a_name_that_changed_after_the_check(rules):
-    bound = rules.binding(names("Next: Experience"), filled=1)
+    bound = rules.binding(names("Next: Experience"), fresh=False)
     assert bound.search("Next: Experience")
     assert not bound.search("Submit")
     assert not bound.search("Next and submit")
     assert not bound.search("Next and apply")
-    assert rules.binding(names("Apply now"), filled=0).search("Apply now")
+    assert rules.binding(names("Apply now"), fresh=True).search("Apply now")
 
 
 # --- the actions ---
@@ -355,6 +374,13 @@ def test_a_code_page_is_found_by_its_headings_or_labels(agent_cfg):
     assert not snap(agent_cfg, el(1, "Postal code"), headings=["Your details"]).code_page
 
 
+def test_one_character_boxes_are_code_boxes_only_with_a_code_label_or_four_in_a_row(agent_cfg):
+    initial = el(1, "Middle initial", maxlength=1, value="Q")
+    assert '"Q"' in snap(agent_cfg, initial).text and not snap(agent_cfg, initial).code_page
+    boxes = [el(i, "", name=f"c{i}", maxlength=1, value="7") for i in range(1, 5)]
+    assert '"value"' not in snap(agent_cfg, *boxes, headings=CODE_HEADINGS).text
+
+
 def test_the_snapshot_never_shows_a_code_fields_value(agent_cfg):
     boxes = [{**b, "value": d} for b, d in zip(BOXES, "482913", strict=True)]
     s = snap(agent_cfg, *boxes, el(8, "Security code", value="482913"), headings=CODE_HEADINGS)
@@ -411,7 +437,20 @@ def test_click_verify_refuses_on_a_page_with_too_many_other_fields(agent_cfg, ru
 
 
 @pytest.mark.parametrize(
-    "text", ["Submit application", "Confirm application", "Apply", "Sign in", "Confirm and apply now", "Back"]
+    "text",
+    [
+        "Submit application",
+        "Confirm application",
+        "Apply",
+        "Sign in",
+        "Confirm and apply now",
+        "Back",
+        "Verify and submit",
+        "Confirm & submit",
+        "Continue to submit",
+        "Confirm and send",
+        "Next: finish",
+    ],
 )
 def test_click_verify_refuses_anything_but_a_verify_button(text, agent_cfg, rules):
     page = code_page(button=text)
@@ -440,6 +479,50 @@ def test_an_invisible_recaptcha_or_a_captcha_widget_beside_a_form_is_not_a_block
     widget = "iframe https://newassets.hcaptcha.com/captcha/v1/x"
     assert not snap(agent_cfg, el(1, "Email"), frames=[widget]).captcha  # the owner ticks it before submit
     assert not snap(agent_cfg, frames=["iframe https://www.youtube.com/embed/x"]).captcha
+
+
+@pytest.mark.parametrize(
+    "prefill",
+    [
+        el(1, "First name", value="Alex"),
+        el(1, "Resume", type="file", visible=False),
+        el(1, "Terms", type="checkbox", checked=True),
+    ],
+)
+def test_apply_is_refused_on_a_page_that_already_has_answers_or_an_upload(prefill, agent_cfg, rules):
+    page = FakePage([state(prefill, btn(2, "Apply now"))])  # filled by the owner, or a parser, not the agent
+    assert not read(page, agent_cfg).fresh
+    with pytest.raises(RefusedError, match="Apply"):
+        run_act(agent_cfg, rules, page, {"op": "click", "ref": 2}, filled=0)
+    assert page.clicks == []
+
+
+def test_apply_now_on_a_job_page_is_still_clicked(agent_cfg, rules):
+    page = FakePage([state(el(1, "Search jobs", type="search", value="developer"), btn(2, "Apply now"))])
+    assert read(page, agent_cfg).fresh
+    run_act(agent_cfg, rules, page, {"op": "click", "ref": 2}, filled=0)
+    assert page.clicks == ["Apply now"]
+
+
+@pytest.mark.parametrize(
+    "toggle",
+    [
+        el(1, type="", tag="div", role="checkbox", text="Sign in with Google"),
+        el(1, type="", tag="div", role="switch", text="Submit application"),
+        el(1, type="", tag="div", role="checkbox", text="\u0405end"),
+    ],
+)
+def test_a_role_toggle_with_a_submit_or_sign_in_name_is_never_checked(toggle, agent_cfg, rules):
+    page = FakePage([state(toggle)])
+    with pytest.raises(RefusedError):
+        run_act(agent_cfg, rules, page, {"op": "check", "ref": 1})
+    assert page.done == []
+
+
+def test_a_role_toggle_with_a_plain_name_is_checked(agent_cfg, rules):
+    page = FakePage([state(el(1, type="", tag="div", role="checkbox", text="Monday"))])
+    run_act(agent_cfg, rules, page, {"op": "check", "ref": 1})
+    assert page.done == [("check", 1, None)]
 
 
 def test_a_hidden_radio_is_checked_through_its_visible_label(agent_cfg, rules):

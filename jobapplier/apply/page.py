@@ -14,7 +14,7 @@ from pathlib import Path
 
 from jobapplier.core.rules import norm, words
 
-__all__ = ["ClickRules", "RefusedError", "Snapshot", "act", "fill_code", "read", "verify"]
+__all__ = ["ClickRules", "RefusedError", "Snapshot", "act", "code_masks", "fill_code", "read", "verify"]
 
 _TEXT = frozenset(
     {
@@ -168,6 +168,8 @@ _LIVE = (
     title: t(el.getAttribute('title')), form: !!el.form,
     pw_form: !!(form && form.querySelector('input[type=password]')),
     auto: (el.getAttribute('autocomplete') || '').toLowerCase(),
+    form_fields: el.form ? [...el.form.elements].filter(f => f.tagName !== 'BUTTON'
+      && !['hidden', 'submit', 'button', 'image', 'reset'].includes((f.type || '').toLowerCase())).length : 0,
     disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
   };
 }"""
@@ -239,10 +241,20 @@ class ClickRules:
             return False
         return not any(w in self.next_deny for n in names for w in n.split())
 
-    def refuse(self, live: dict, filled: int) -> str | None:
-        """Why the control must not be clicked, or None. filled: fields filled so far in this application."""
+    def name_refusal(self, live: dict) -> str | None:
+        """A look-alike letter, a submit word or a sign-in word in any source of the control's name."""
         if any(_foreign(live[k]) for k in _SOURCES):  # a look-alike letter could hide a submit word
             return "a look-alike letter in its name"
+        names = [norm(live[k]) for k in _SOURCES]
+        if any(self.submit_stem.search(n) for n in names):
+            return "a submit word in its name: the owner submits"
+        if any(self.sign_in.search(n) for n in names):
+            return "a sign-in or account word in its name: the owner signs in"
+        return None
+
+    def refuse(self, live: dict, fresh: bool) -> str | None:
+        """Why the control must not be clicked, or None. fresh: nothing on the page is answered or
+        uploaded and the agent has filled nothing, as on a job description page."""
         names = [norm(live[k]) for k in _SOURCES]
         tag, kind = live["tag"], live["type"]
         if tag in ("select", "textarea") or (tag == "input" and kind not in _BUTTON_INPUTS):
@@ -251,12 +263,14 @@ class ClickRules:
             return "it has no visible name"
         if kind == "reset":
             return "a reset button clears the form"
-        if any(self.submit_stem.search(n) for n in names):
-            return "a submit word in its name: the owner submits"
-        if any(self.sign_in.search(n) for n in names):
-            return "a sign-in or account word in its name: the owner signs in"
+        if why := self.name_refusal(live):
+            return why
         if any(self.apply.search(n) for n in names):
-            return "an Apply button after fields were filled: it may submit the form" if filled else None
+            # A form's own submit, or any page with answers on it: its Apply may send the application.
+            own_submit = live["form"] and kind in ("submit", "image") and live["form_fields"] > 0
+            if own_submit or not fresh:
+                return "an Apply button on a form or a page with answers: it may submit the application"
+            return None
         if self._is_next(live, names):
             return None
         if tag == "a" or live["role"] == "link":
@@ -265,11 +279,11 @@ class ClickRules:
             return "it submits the form and is not a Next button"
         return None
 
-    def binding(self, live: dict, filled: int) -> re.Pattern:
+    def binding(self, live: dict, fresh: bool) -> re.Pattern:
         """The text the click is bound to, which Playwright checks again on every retry: the text that was
         checked, with no submit, sign-in or (once anything is filled) apply word added since."""
         never = [rf"(?!.*\b({self.raw_stems}))", rf"(?!.*\b({self.raw_sign_in})\b)"]
-        if filled:
+        if not fresh:
             never.append(rf"(?!.*\b({self.raw_apply})\b)")
         text = r"\W+".join(map(re.escape, live["text"].split()))
         return re.compile("^" + "".join(never) + r"\W*" + text, re.IGNORECASE | re.DOTALL)
@@ -283,6 +297,7 @@ class Snapshot:
     password: bool  # a visible password field: an account step
     captcha: bool  # a captcha that is the whole page: only the owner can get past it
     code_page: bool  # it asks for a verification code
+    fresh: bool  # no answer and no file on the page: a job description, not a form in progress
     missing: list[str]  # required fields still empty
 
     def label(self, ref: int) -> str:
@@ -333,16 +348,30 @@ _DIGIT = re.compile(r"\bdigit\b")
 _CODE_TYPES = frozenset({"text", "tel", "number", "search"})
 
 
-def _is_code_field(e: dict, code: re.Pattern) -> bool:
-    """A code box: a one-time-code field, one labelled with a code word, or one box of a code typed one
-    digit per box ("digit 1 of six")."""
-    if e["tag"] != "input" or e["type"] not in _CODE_TYPES:
-        return False
-    named = e.get("auto") == "one-time-code" or code.search(norm(f"{_label(e)} {e['name']}"))
-    return bool(named) or e.get("maxlength") == 1 or bool(_DIGIT.search(norm(_label(e))))
+def _is_box(e: dict) -> bool:
+    return e["tag"] == "input" and e["type"] in _CODE_TYPES and e.get("maxlength") == 1
 
 
-def _entry(e: dict, cap: int, code: re.Pattern) -> dict:
+def _mark_codes(kept: list[dict], code: re.Pattern) -> None:
+    """Sets e["code"]: a one-time-code field, one labelled with a code word or "digit 1 of six", or a
+    one-character box in a run of four or more (one alone is a middle initial)."""
+    run = sum(map(_is_box, kept)) >= 4
+    for e in kept:
+        text_box = e["tag"] == "input" and e["type"] in _CODE_TYPES
+        named = e.get("auto") == "one-time-code" or code.search(norm(f"{_label(e)} {e['name']}"))
+        e["code"] = text_box and bool(named or _DIGIT.search(norm(_label(e))) or (run and _is_box(e)))
+
+
+def _is_answered(e: dict) -> bool:
+    """A field the owner, a parser or the agent has answered, or a file input (an upload step)."""
+    if e["type"] == "file":
+        return True
+    if e["type"] in ("checkbox", "radio"):
+        return e["checked"]
+    return _is_field(e) and e["type"] not in ("select", "search") and bool(e["value"].strip())
+
+
+def _entry(e: dict, cap: int) -> dict:
     if not _is_field(e):
         tag = "link" if e["tag"] == "a" or e["role"] == "link" else e["role"] or "button"
         out = {"ref": e["ref"], "tag": tag, "text": _name(e)}
@@ -351,7 +380,7 @@ def _entry(e: dict, cap: int, code: re.Pattern) -> dict:
         if e["role"]:
             out["role"] = e["role"]
         # never a code's value: neither the model nor the trace may see it
-        if e["value"] and e["type"] not in ("checkbox", "radio", "password") and not _is_code_field(e, code):
+        if e["value"] and e["type"] not in ("checkbox", "radio", "password") and not e["code"]:
             out["value"] = e["value"]
         if e["options"]:
             out["options"] = _options(e["options"], cap)
@@ -361,12 +390,12 @@ def _entry(e: dict, cap: int, code: re.Pattern) -> dict:
     return out
 
 
-def _entries(kept: list[dict], cap: int, code: re.Pattern) -> list[tuple[dict, list[int]]]:
+def _entries(kept: list[dict], cap: int) -> list[tuple[dict, list[int]]]:
     """(view entry, its refs) in page order; the radios of one question are one entry with options."""
     out, groups = [], {}
     for e in kept:
         if e["type"] != "radio":
-            out.append((_entry(e, cap, code), [e["ref"]]))
+            out.append((_entry(e, cap), [e["ref"]]))
             continue
         key = (tuple(e["frame"]), e["name"] or e["group"] or e["ref"])
         if key not in groups:
@@ -412,7 +441,8 @@ def read(page, agent_cfg: dict) -> Snapshot:
         if (shown or via_label or e["type"] == "file") and not _is_honeypot(e):
             kept.append({**e, "via_label": via_label})
     code = words(agent_cfg["code_words"])
-    entries = _entries(kept, agent_cfg["max_options"], code)
+    _mark_codes(kept, code)
+    entries = _entries(kept, agent_cfg["max_options"])
     view = {
         "url": raw["url"],
         "title": raw["title"],
@@ -430,7 +460,9 @@ def read(page, agent_cfg: dict) -> Snapshot:
     refs = {e["ref"]: e for e in kept if e["ref"] in shown_refs}
     said = [*raw["headings"], *(f"{_label(e)} {e['name']}" for e in kept if _is_field(e))]
     code_page = any(code.search(norm(t)) for t in said) or any(e.get("auto") == "one-time-code" for e in kept)
-    return Snapshot(view, text, refs, password, _captcha(raw, kept, agent_cfg), code_page, _missing(kept))
+    fresh = not any(map(_is_answered, kept))
+    captcha = _captcha(raw, kept, agent_cfg)
+    return Snapshot(view, text, refs, password, captcha, code_page, fresh, _missing(kept))
 
 
 def _captcha(raw: dict, kept: list[dict], agent_cfg: dict) -> bool:
@@ -442,15 +474,15 @@ def _captcha(raw: dict, kept: list[dict], agent_cfg: dict) -> bool:
     return found and not any(_is_field(e) and e["type"] != "file" for e in kept)
 
 
-def _click(root, selector: str, live: dict, rules: ClickRules, filled: int, timeout_ms: float) -> None:
+def _click(root, selector: str, live: dict, rules: ClickRules, fresh: bool, timeout_ms: float) -> None:
     """The only click in the apply code."""
-    if why := rules.refuse(live, filled):
+    if why := rules.refuse(live, fresh):
         raise RefusedError(why)
     if live["tag"] == "input":  # its name is its value
         value = live["value"].replace("\\", "\\\\").replace('"', '\\"')
         target = root.locator(f'{selector}[value="{value}" i]')
     elif live["text"]:
-        target = root.locator(selector).filter(has_text=rules.binding(live, filled))
+        target = root.locator(selector).filter(has_text=rules.binding(live, fresh))
     else:
         aria = live["aria"].replace("\\", "\\\\").replace('"', '\\"')
         target = root.locator(f'{selector}[aria-label="{aria}" i]')
@@ -483,7 +515,7 @@ def act(page, snap: Snapshot, action: dict, pdf: Path, rules: ClickRules, filled
     if live["disabled"]:
         raise RefusedError("it is disabled")
     if op == "click":
-        return _click(root, selector, live, rules, filled, timeout_ms)
+        return _click(root, selector, live, rules, snap.fresh and not filled, timeout_ms)
     if op not in _FITS:
         raise RefusedError(f"not an action: {op!r}")
     if live["type"] == "password" or live["pw_form"]:
@@ -492,6 +524,8 @@ def act(page, snap: Snapshot, action: dict, pdf: Path, rules: ClickRules, filled
         live["auto"] == "one-time-code" or rules.code.search(norm(f"{_label(e)} {e['name']}"))
     ):
         raise RefusedError("a verification code: JobApplier reads it from the mail", stop="needs_code")
+    if op in ("check", "uncheck") and live["tag"] != "input" and (why := rules.name_refusal(live)):
+        raise RefusedError(why)  # a role toggle is clicked by Playwright: the same name check as a click
     types, roles = _FITS[op]
     if live["type"] not in types and live["role"] not in roles:
         raise RefusedError(f"{op} does not fit a {live['type'] or live['role'] or live['tag']} element")
@@ -516,9 +550,14 @@ def act(page, snap: Snapshot, action: dict, pdf: Path, rules: ClickRules, filled
 
 def _code_fields(snap: Snapshot, rules: ClickRules) -> list[dict]:
     """The code inputs in page order: the boxes of a code typed one digit per box, else the one field."""
-    fields = [e for e in snap.refs.values() if _is_code_field(e, rules.code) and not e["disabled"]]
-    boxes = [e for e in fields if e.get("maxlength") == 1 or _DIGIT.search(norm(_label(e)))]
+    fields = [e for e in snap.refs.values() if e["code"] and not e["disabled"]]
+    boxes = [e for e in fields if _is_box(e) or _DIGIT.search(norm(_label(e)))]
     return boxes if len(boxes) > 1 else fields[:1]
+
+
+def code_masks(page, snap: Snapshot, rules: ClickRules) -> list:
+    """Locators of the code fields, to black out in a screenshot."""
+    return [(lambda root, sel: root.locator(sel))(*_where(page, e)) for e in _code_fields(snap, rules)]
 
 
 def fill_code(page, snap: Snapshot, code: str, rules: ClickRules, timeout_ms: float) -> None:
@@ -555,10 +594,13 @@ def _click_verify(page, snap: Snapshot, ref: int, rules: ClickRules, timeout_ms:
     names = [norm(live[k]) for k in _SOURCES]
     visible = ClickRules._visible(live)
     start = rules.verify_start.match(visible)
+    # past the verify word, a submit word ("Verify and submit") may send more than the code
+    rests = [re.sub(r"\bsubmit code\b", "", rules.verify_start.sub("", n, count=1)) for n in names]
     if (
         any(_foreign(live[k]) for k in _SOURCES)
         or not start
         or len(visible[start.end() :].split()) > 2
+        or any(rules.submit_stem.search(r) for r in rests)
         or any(rules.apply.search(n) or rules.sign_in.search(n) or "application" in n.split() for n in names)
         or live["disabled"]
     ):
