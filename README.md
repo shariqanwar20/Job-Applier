@@ -174,7 +174,13 @@ The loop stops when:
 - the model call fails;
 - the page breaks.
 
-A note at the top of the page then gives:
+### When it needs you
+
+Some stops are for you: a sign-in, account or verification-code step, a question your profile and resume do not answer, or a captcha. Code finds a captcha by itself: a visible frame from one of `apply.agent.captcha_hosts` with no form field beside it, like a DataDome or Cloudflare check that hides the whole page. It does so without a model call. A captcha widget inside a form does not stop the filling; tick it right before you submit. JobApplier never solves a captcha and never types a verification code: code refuses a fill into a field with an `apply.agent.code_words` label or `autocomplete="one-time-code"`.
+
+All tabs are filled first, as far as each can go. Then JobApplier goes through the ones that need you, one at a time. It brings the tab to the front with the note "JobApplier needs you: <what>. Do it in this tab; JobApplier continues when the page changes." It checks the page every `apply.agent.poll_seconds` (3). Once the page has changed and stayed the same for one check, with no password field or captcha left, the loop goes on in the same tab. The step and cost limits carry over. You get at most `apply.agent.max_handoffs` (3) of these per application. When nothing changes within `apply.agent.wait_for_owner_seconds` (300), the application ends as "it needs you".
+
+When an application ends, a note at the top of its page gives:
 
 - why it stopped and the model's note;
 - what it filled, and whether the resume was uploaded;
@@ -190,13 +196,13 @@ Each application leaves two files in `logs/`:
 - `apply-<JobID>.json`, a trace. For every step it holds the snapshot's URL and element count, the actions the model asked for, what was done, refused or failed, the status, the note and the cost. It has the model's answers but never your profile or resume.
 - `apply-<JobID>-<step>.png`, a full-page screenshot of the page where the loop stopped.
 
-The log also has one line per step, with its actions and cost; answers longer than 80 characters are shown by length only. `apply --no-prompt` asks nothing and marks nothing Submitted, and it closes Chrome once every loop has finished. Use it to try the agent on a row.
+The log also has one line per step, with its actions and cost; answers longer than 80 characters are shown by length only. `apply --no-prompt` asks nothing and marks nothing Submitted, and it closes Chrome once every loop has finished. Use it to try the agent on a row. `apply --no-wait` never waits for you; an application that needs you ends there. `--no-prompt` implies `--no-wait`. The trace also lists each hand-off, with how long it waited and whether the loop went on.
 
 The scheduled `run` never opens a browser. When rows become ready, it sends one notification: "N applications ready: run `uv run python -m jobapplier apply`".
 
 ### Logins
 
-At a sign-in or account step (a password field, or the model says so), the loop stops and its note says to sign in yourself. Chrome uses its own profile in `data/browser-profile`, kept between runs, so a sign-in you do there stays. Run `apply` again after signing in.
+At a sign-in or account step (a password field, or the model says so), the tab waits for you to sign in (see "When it needs you"). Chrome uses its own profile in `data/browser-profile`, kept between runs, so a sign-in you do there stays.
 
 - To install the 1Password extension in that profile once, run `apply` with any row and open the Chrome Web Store in a tab.
 - On Workday-style sign-in or sign-up pages, use 1Password's autofill or password generator yourself.
