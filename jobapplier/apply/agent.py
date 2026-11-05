@@ -276,7 +276,12 @@ class Application:
             self.status, self.note = "captcha", "solve the captcha"
         elif snap.code_page:
             self.status = "needs_code"
-        elif len(self.digests) == ag["unchanged_steps"] and len(set(self.digests)) == 1:
+        elif (
+            len(self.digests) == ag["unchanged_steps"]
+            and len(set(self.digests)) == 1
+            # a slow page (Workday's spinner) is not stuck: it has to stay the same for a while too
+            and (self.times[-1] - self.times[-ag["unchanged_steps"]]).total_seconds() >= ag["stuck_seconds"]
+        ):
             self.status = "stuck"
         elif self.cost >= ag["max_cost_usd"]:
             self.status = "max_cost"
@@ -307,6 +312,8 @@ class Application:
                 host = urlsplit(self.page.url).hostname or self.page.url
                 self.history.append(f"step {self.n}: a new tab opened on {host}; going on there")
             _settle(self.page, self.cfg, uploaded=self.uploaded and not uploaded)
+            if not got.get("actions"):  # the model is waiting for the page to render: give it time
+                self.page.wait_for_timeout(ag["idle_wait_seconds"] * 1000)
 
     def _code(self) -> None:
         """Reads the code the page sent from the owner's mail, types it and clicks verify; the loop then

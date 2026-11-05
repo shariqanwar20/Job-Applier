@@ -96,7 +96,9 @@ apply:  # `apply` runs one Haiku agent per ready row in Chrome; you check the fo
     max_options: 80                # options shown per select
     description_chars: 3000        # of the job description, in the prompt
     settle_seconds: 1.5            # after each step's actions, for the page to redraw
-    unchanged_steps: 3             # the same page this many snapshots in a row stops the loop
+    unchanged_steps: 3             # the same page this many snapshots in a row stops the loop...
+    stuck_seconds: 45              # ...when it also stayed the same this long (slow pages load late)
+    idle_wait_seconds: 8           # extra wait after a step where the model did nothing (page loading)
     # Hand-off: at a sign-in or account step, a question it cannot answer, or a captcha that is the whole
     # page (a visible frame from one of captcha_hosts, with no form fields beside it), the tab waits for you.
     # It polls every poll_seconds for up to wait_for_owner_seconds; once the page has changed and stays the
