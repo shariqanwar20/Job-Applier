@@ -92,7 +92,8 @@ Rules:
   account, or asks for a code sent to my phone.
 - For a combobox or custom dropdown: type or click it, then click the matching option (role "option") that
   the next page snapshot shows. An option or choice marked "checked" is already picked: clicking it again
-  unpicks it, so never click a checked option. Once the value shows as picked, move on.
+  unpicks it, so never click a checked option. Once the value shows as picked, move on. A checked option
+  next to a dropdown's search box is the value already chosen for it, even when the box itself looks empty.
 - Toggle-style answers (Yes/No buttons, days of the week, a title like Mr.) are clicked; use the question
   text that comes before them on the page.
 - "Have you worked for this company before?" (or "previous employee"): No, unless my resume lists it.

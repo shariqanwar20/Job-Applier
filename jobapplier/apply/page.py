@@ -129,7 +129,10 @@ _SNAPSHOT = (
         value: tag === 'select' ? (picked && el.value !== '' ? text(picked) : '')
           : field && type !== 'password' ? t(el.value).slice(0, 500) : '',
         checked: !!el.checked || el.getAttribute('aria-checked') === 'true'
-          || el.getAttribute('aria-selected') === 'true',  // a picked option of a custom dropdown
+          || el.getAttribute('aria-selected') === 'true'  // a picked option of a custom dropdown
+          // a picked value shown as a removable pill (Workday: "Canada (+1), press delete to clear value")
+          || el.getAttribute('data-automation-id') === 'selectedItem'
+          || /\b(clear|remove) (this )?(value|selection)\b/i.test(el.getAttribute('aria-label') || ''),
         options: tag === 'select' ? [...el.options].map(text) : [],
         required: !!el.required || el.getAttribute('aria-required') === 'true',
         disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
