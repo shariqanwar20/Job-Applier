@@ -229,7 +229,11 @@ def test_the_trace_and_a_screenshot_are_saved_when_the_loop_stops(job):
     trace = json.loads((logs / "apply-J7.json").read_text())
     assert trace["job"] == "J7" and trace["status"] == "needs_owner" and trace["note"] == "n"
     one, two = trace["steps"]
-    assert one["snapshot"] == {"url": "https://acme.example/jobs/7", "elements": 2}
+    assert {k: one["snapshot"][k] for k in ("url", "elements")} == {
+        "url": "https://acme.example/jobs/7",
+        "elements": 2,
+    }
+    assert one["snapshot"]["view"]["elements"][1]["text"] == "Apply now"
     assert one["asked"] == [{"op": "click", "ref": 2}] and one["done"] == ["click 2 (Apply now)"]
     assert two["refused"] == ["click 9: no element 9 on this page"]
     assert two["done"] == [f"fill 5 (Why do you want to work here?) = {WHY}"]  # answers belong in the trace

@@ -81,8 +81,13 @@ Rules:
   is not a sign-in: fill my email, tick its required consent boxes and click Next.
 - Return status "needs_account" only when the page asks for a password, asks me to sign in to an existing
   account, or asks for a verification code sent to my email or phone.
-- When you cannot go on (a question you cannot answer truthfully, an error you cannot fix), return status
-  "needs_owner" and say why in note.
+- For a combobox or custom dropdown: type or click it, then click the matching option (role "option") that
+  the next page snapshot shows.
+- Toggle-style answers (Yes/No buttons, days of the week, a title like Mr.) are clicked; use the question
+  text that comes before them on the page.
+- When my profile or resume does not answer a required field, leave it and keep doing everything else on
+  the page first. Return status "needs_owner" (naming the fields) only when nothing else on the page can
+  be done.
 - Otherwise return status "continue" with this turn's actions.
 - note: one short sentence on what you did or why you stopped.
 """
@@ -162,7 +167,8 @@ class _Run:
         actions = got.get("actions") or []
         record = {
             "step": n,
-            "snapshot": {"url": snap.view["url"], "elements": len(snap.view["elements"])},
+            # the page as the model saw it (page content only, never the profile or resume): for debugging
+            "snapshot": {"url": snap.view["url"], "elements": len(snap.view["elements"]), "view": snap.view},
             "asked": actions,
             "done": [],
             "refused": [],
