@@ -90,7 +90,8 @@ Rules:
 - Return status "needs_account" only when the page asks for a password, asks me to sign in to an existing
   account, or asks for a code sent to my phone.
 - For a combobox or custom dropdown: type or click it, then click the matching option (role "option") that
-  the next page snapshot shows.
+  the next page snapshot shows. An option or choice marked "checked" is already picked: clicking it again
+  unpicks it, so never click a checked option. Once the value shows as picked, move on.
 - Toggle-style answers (Yes/No buttons, days of the week, a title like Mr.) are clicked; use the question
   text that comes before them on the page.
 - When my profile or resume does not answer a required field, leave it and keep doing everything else on

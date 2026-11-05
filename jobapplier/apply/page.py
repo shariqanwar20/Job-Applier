@@ -128,7 +128,8 @@ _SNAPSHOT = (
         // never a password's value: the owner's password manager may have filled it
         value: tag === 'select' ? (picked && el.value !== '' ? text(picked) : '')
           : field && type !== 'password' ? t(el.value).slice(0, 500) : '',
-        checked: !!el.checked || el.getAttribute('aria-checked') === 'true',
+        checked: !!el.checked || el.getAttribute('aria-checked') === 'true'
+          || el.getAttribute('aria-selected') === 'true',  // a picked option of a custom dropdown
         options: tag === 'select' ? [...el.options].map(text) : [],
         required: !!el.required || el.getAttribute('aria-required') === 'true',
         disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
